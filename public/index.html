@@ -27,13 +27,17 @@ body{background:#1a1a2e;color:#eee;font-family:'Roboto Condensed',sans-serif;min
 #app{display:flex;flex-direction:row;align-items:flex-start;justify-content:center;gap:calc(14px*var(--s));padding:calc(8px*var(--s));min-height:100vh}
 #board-wrap{flex-shrink:0;width:calc(702px*var(--s));height:calc(702px*var(--s));overflow:hidden}
 #board{display:grid;grid-template-columns:90px repeat(9,58px) 90px;grid-template-rows:90px repeat(9,58px) 90px;width:702px;height:702px;background:#c8e6c0;border:3px solid #222;border-radius:6px;position:relative;transform:scale(var(--s));transform-origin:0 0}
-.cell{border:1px solid #333;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;position:relative;overflow:hidden;font-size:7px;text-align:center;color:#111;background:#d5ecc2;cursor:default}
+.cell{border:1px solid #333;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;position:relative;overflow:hidden;font-size:7px;text-align:center;color:#111;background:#d5ecc2;cursor:pointer}
 .cell .color-bar{position:absolute;width:100%;height:14px;z-index:2}
 .cell.bottom .color-bar{top:0}.cell.left .color-bar{right:0;width:14px;height:100%;top:0}.cell.top .color-bar{bottom:0}.cell.right .color-bar{left:0;width:14px;height:100%;top:0}
 .cell.bottom{padding-top:16px}.cell.top{padding-bottom:16px;justify-content:flex-end}.cell.left{padding-right:16px;justify-content:center}.cell.right{padding-left:16px;justify-content:center}
-.cell .name{font-weight:700;font-size:6.5px;line-height:1.15;padding:0 2px;z-index:1}
-.cell .price-tag{font-size:6px;color:#444;z-index:1}
-.cell.corner{font-size:8px;font-weight:700;background:#d5ecc2;justify-content:center;padding:0}.cell.corner .name{font-size:8px}
+.cell .name{font-weight:700;font-size:8px;line-height:1.15;padding:0 2px;z-index:1}
+.cell .price-tag{font-size:7.5px;color:#333;z-index:1;font-weight:600}
+.cell.corner{font-size:9px;font-weight:700;background:#d5ecc2;justify-content:center;padding:0}.cell.corner .name{font-size:9px}
+.cell.mortgaged-cell{background:#d5ecc288}
+.cell.mortgaged-cell .name{opacity:.5;text-decoration:line-through}
+.cell.mortgaged-cell .price-tag{color:#c62828;font-weight:700}
+.cell.selected-cell{box-shadow:inset 0 0 0 3px #f5c542;z-index:10}
 .tokens{display:flex;flex-wrap:wrap;gap:2px;justify-content:center;z-index:5;margin-top:1px}
 .tok{width:18px;height:18px;border-radius:50%;border:2px solid #000;font-size:9px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,.6)}
 .owner-dot{position:absolute;bottom:2px;right:2px;width:7px;height:7px;border-radius:50%;border:1px solid #000;z-index:4}
@@ -96,6 +100,28 @@ body{background:#1a1a2e;color:#eee;font-family:'Roboto Condensed',sans-serif;min
 .auction-btns .bid50{background:#2980b9}.bid50:hover{background:#3498db}
 .auction-btns .bid100{background:#8e44ad}.bid100:hover{background:#9b59b6}
 .auction-btns button:disabled{background:#555;cursor:default}
+
+/* Property info panel */
+#prop-info{background:#0a1e3d;border-radius:8px;padding:calc(10px*var(--sf));margin-top:calc(8px*var(--sf));display:none}
+#prop-info.show{display:block}
+#prop-info h4{font-family:'Oswald',sans-serif;color:#f5c542;font-size:calc(14px*var(--sf));margin-bottom:6px}
+#prop-info .pi-row{display:flex;justify-content:space-between;font-size:calc(11px*var(--sf));padding:2px 0;border-bottom:1px solid #1a3050}
+#prop-info .pi-row.highlight{color:#8f8;font-weight:700}
+#prop-info .pi-mort{color:#e74c3c;font-weight:700;font-size:calc(12px*var(--sf));margin-top:4px}
+#prop-info .pi-owner{margin-top:4px;font-size:calc(11px*var(--sf))}
+.pi-color-bar{height:calc(8px*var(--sf));border-radius:4px 4px 0 0;margin:-calc(10px*var(--sf));margin-bottom:8px;padding:0}
+
+/* Settings gear */
+.settings-wrap{position:relative;display:inline-block}
+.gear-btn{background:none;border:none;font-size:calc(20px*var(--sf));cursor:pointer;padding:4px;color:#888;transition:color .2s}
+.gear-btn:hover{color:#f5c542}
+.settings-menu{display:none;position:absolute;right:0;top:100%;background:#16213e;border:1px solid #445;border-radius:6px;padding:6px;min-width:160px;z-index:50}
+.settings-menu.show{display:block}
+.settings-menu button{display:block;width:100%;text-align:left;padding:8px 10px;border:none;border-radius:4px;background:none;color:#eee;font-size:calc(12px*var(--sf));cursor:pointer;font-family:'Roboto Condensed',sans-serif}
+.settings-menu button:hover{background:#c0392b33}
+
+/* Sell houses button */
+#actions button.sell{background:#e67e22}#actions button.sell:hover{background:#f39c12}
 .mort-item{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #333;font-size:12px}
 .mort-item button{padding:3px 10px;border:none;border-radius:4px;cursor:pointer;font-size:11px;color:#fff}
 .mort-item button.m-on{background:#e67e22}.mort-item button.m-off{background:#27ae60}
@@ -160,7 +186,18 @@ body{background:#1a1a2e;color:#eee;font-family:'Roboto Condensed',sans-serif;min
       <div class="panel"><h2>⚡ Aktionen</h2><div id="actions"></div></div>
       <div class="panel"><h2>📜 Log</h2><div id="log"></div></div>
     </div>
-    <div id="trade-side"><div class="panel"><h2>🤝 Handel</h2><div id="trade-area"></div></div></div>
+    <div id="trade-side">
+      <div class="panel" style="display:flex;justify-content:space-between;align-items:center;padding:calc(6px*var(--sf)) calc(10px*var(--sf))">
+        <h2 style="margin:0">🤝 Handel</h2>
+        <div class="settings-wrap"><button class="gear-btn" onclick="toggleSettings()">⚙️</button>
+          <div class="settings-menu" id="settings-menu">
+            <button onclick="if(confirm('Spiel wirklich abbrechen?')){doAction({type:'abort'});toggleSettings();}">🛑 Spiel abbrechen</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel"><div id="trade-area"></div></div>
+      <div class="panel"><h2>📋 Grundstück-Info</h2><div id="prop-info"></div></div>
+    </div>
   </div>
 </div>
 <div id="build-modal"><div id="build-content"><h3>🏠 Häuser / Hotels</h3><div id="build-list"></div><br><button onclick="closeBuild()" style="padding:6px 16px;border:none;border-radius:5px;background:#c0392b;color:#fff;cursor:pointer">Schließen</button></div></div>
@@ -313,16 +350,62 @@ function buildBoard(){
 
 function renderBoard(){
   if(!S)return;
-  for(let i=0;i<40;i++){const tc=document.getElementById('tokens-'+i);if(tc)tc.innerHTML='';const cl=document.getElementById('cell-'+i);cl.querySelectorAll('.owner-dot,.houses-row').forEach(e=>e.remove());}
+  for(let i=0;i<40;i++){const tc=document.getElementById('tokens-'+i);if(tc)tc.innerHTML='';const cl=document.getElementById('cell-'+i);cl.querySelectorAll('.owner-dot,.houses-row').forEach(e=>e.remove());cl.classList.remove('mortgaged-cell','selected-cell');
+    // Reset price tag to original
+    const sp=SPACES[i],pt=cl.querySelector('.price-tag');
+    if(pt&&sp.price){
+      const prop=S.properties[i];
+      if(prop&&prop.mortgaged){cl.classList.add('mortgaged-cell');pt.textContent='🏦'+Math.floor(sp.price*0.55)+'€';}
+      else{pt.textContent=sp.price+'€';}
+    }
+    // Click handler
+    cl.onclick=()=>showPropInfo(i);
+  }
   S.players.forEach((pl,i)=>{if(pl.bankrupt)return;const tc=document.getElementById('tokens-'+pl.pos);const t=document.createElement('div');t.className='tok';t.style.background=pl.color;t.textContent=i+1;tc.appendChild(t);});
   for(const[sid,prop]of Object.entries(S.properties)){
     const cl=document.getElementById('cell-'+sid);const sp=SPACES[sid];if(!cl)continue;
     const d=document.createElement('div');d.className='owner-dot';d.style.background=S.players[prop.owner].color;if(prop.mortgaged)d.style.opacity='0.3';cl.appendChild(d);
-    if(prop.houses>0&&sp.type==='property'){const hr=document.createElement('div');hr.className='houses-row';if(prop.houses===5){const h=document.createElement('div');h.className='hotel-icon';hr.appendChild(h);}else{for(let i=0;i<prop.houses;i++){const h=document.createElement('div');h.className='house-icon';hr.appendChild(h);}}cl.appendChild(hr);}
+    if(prop.houses>0&&sp.type==='property'&&!prop.mortgaged){const hr=document.createElement('div');hr.className='houses-row';if(prop.houses===5){const h=document.createElement('div');h.className='hotel-icon';hr.appendChild(h);}else{for(let i=0;i<prop.houses;i++){const h=document.createElement('div');h.className='house-icon';hr.appendChild(h);}}cl.appendChild(hr);}
   }
   const pe=document.getElementById('pot-display');if(pe)pe.textContent='🅿️ Frei Parken: '+S.freeParkingPot+'€';
   const yi=document.getElementById('your-indicator');
   if(yi&&myIdx>=0){const my=S.currentPlayer===myIdx;yi.textContent=my?'🎯 Du bist dran!':'⏳ '+S.players[S.currentPlayer].name;yi.style.background=my?'#27ae6033':'#16213e88';yi.style.color=my?'#2ecc71':'#aaa';}
+}
+
+let selectedCell=-1;
+function showPropInfo(idx){
+  const panel=document.getElementById('prop-info');
+  const sp=SPACES[idx];
+  if(!['property','railroad','utility'].includes(sp.type)){panel.classList.remove('show');panel.innerHTML='';selectedCell=-1;document.querySelectorAll('.cell').forEach(c=>c.classList.remove('selected-cell'));return;}
+  // Highlight cell
+  document.querySelectorAll('.cell').forEach(c=>c.classList.remove('selected-cell'));
+  document.getElementById('cell-'+idx).classList.add('selected-cell');
+  selectedCell=idx;
+  const prop=S.properties[idx];
+  const col=sp.group?(COLORS[sp.group]||'#555'):(sp.type==='railroad'?'#555':'#9e9e9e');
+  let h=`<div style="height:8px;background:${col};border-radius:4px;margin-bottom:8px"></div>`;
+  h+=`<h4>${sp.name}</h4>`;
+  h+=`<div class="pi-row"><span>Kaufpreis</span><span>${sp.price}€</span></div>`;
+  if(prop){
+    h+=`<div class="pi-owner">Besitzer: <span style="color:${S.players[prop.owner].color};font-weight:700">${S.players[prop.owner].name}</span></div>`;
+    if(prop.mortgaged){h+=`<div class="pi-mort">🏦 Hypothek aktiv – keine Miete</div><div class="pi-row"><span>Auslösen kostet</span><span>${Math.floor(sp.price/2*1.1)}€</span></div>`;}
+    else{
+      if(sp.type==='property'){
+        const rents=['Grundmiete','1 Haus','2 Häuser','3 Häuser','4 Häuser','Hotel'];
+        const g=GM[sp.group];const ownsAll=g&&g.every(id=>S.properties[id]&&S.properties[id].owner===prop.owner&&!S.properties[id].mortgaged);
+        sp.rent.forEach((r,i)=>{const cur=(prop.houses===i)||(i===0&&prop.houses===0);h+=`<div class="pi-row${cur?' highlight':''}"><span>${rents[i]}${i===0&&ownsAll&&prop.houses===0?' (x2)':''}</span><span>${i===0&&ownsAll&&prop.houses===0?r*2:r}€</span></div>`;});
+        h+=`<div class="pi-row"><span>Hauspreis</span><span>${sp.houseCost}€</span></div>`;
+      }else if(sp.type==='railroad'){
+        const c=[5,15,25,35].filter(id=>S.properties[id]&&S.properties[id].owner===prop.owner&&!S.properties[id].mortgaged).length;
+        [1,2,3,4].forEach(n=>{h+=`<div class="pi-row${c===n?' highlight':''}"><span>${n} Bahnhof${n>1?'e':''}</span><span>${[25,50,100,200][n-1]}€</span></div>`;});
+      }else{h+=`<div class="pi-row"><span>1 Werk</span><span>4x Würfel</span></div><div class="pi-row"><span>2 Werke</span><span>10x Würfel</span></div>`;}
+    }
+  }else{
+    h+=`<div class="pi-owner" style="color:#8f8">Zu verkaufen!</div>`;
+    if(sp.rent){const rents=['Grundmiete','1 Haus','2 Häuser','3 Häuser','4 Häuser','Hotel'];sp.rent.forEach((r,i)=>{h+=`<div class="pi-row"><span>${rents[i]}</span><span>${r}€</span></div>`;});if(sp.houseCost)h+=`<div class="pi-row"><span>Hauspreis</span><span>${sp.houseCost}€</span></div>`;}
+  }
+  h+=`<div class="pi-row"><span>Hypothek</span><span>${Math.floor(sp.price/2)}€</span></div>`;
+  panel.innerHTML=h;panel.classList.add('show');
 }
 
 function renderPlayers(){
@@ -369,12 +452,11 @@ function renderActions(){
       aBtn('🔨 Versteigern','trade',()=>doAction({type:'auction_start'}));
     }
     if(canBuild())aBtn('🏠 Bauen','build',()=>openBuild());
+    if(canSellHouses())aBtn('🏚️ Haus verkaufen','sell',()=>openSellHouses());
     if(hasMortgageActions())aBtn('🏦 Hypotheken','trade',()=>openMort());
     aBtn('🤝 Handeln','trade',()=>openCompose());
     aBtn('Zug beenden','end',()=>doAction({type:'endturn'}));
   }
-  // Abort button always visible
-  aBtn('🛑 Spiel abbrechen','end',()=>{if(confirm('Spiel wirklich abbrechen? Alle kehren zur Lobby zurück.'))doAction({type:'abort'});});
 }
 function aBtn(t,c,f){const b=document.createElement('button');b.textContent=t;if(c)b.className=c;b.onclick=f;document.getElementById('actions').appendChild(b);}
 
@@ -427,6 +509,34 @@ function openMort(){
 }
 function closeMort(){document.getElementById('mort-modal').classList.remove('show');}
 
+function toggleSettings(){document.getElementById('settings-menu').classList.toggle('show');}
+document.addEventListener('click',e=>{if(!e.target.closest('.settings-wrap'))document.getElementById('settings-menu')?.classList.remove('show');});
+
+// Sell houses
+function canSellHouses(){
+  if(!S||myIdx<0)return false;
+  return Object.entries(S.properties).some(([,p])=>p.owner===myIdx&&p.houses>0);
+}
+function openSellHouses(){
+  const l=document.getElementById('build-list');l.innerHTML='';
+  document.querySelector('#build-content h3').textContent='🏚️ Häuser verkaufen';
+  const myProps=sortProps(Object.entries(S.properties).filter(([,p])=>p.owner===myIdx&&p.houses>0).map(([s])=>parseInt(s)));
+  myProps.forEach(sid=>{
+    const sp=SPACES[sid],pr=S.properties[sid];
+    const refund=Math.floor(sp.houseCost/2);
+    const g=GM[sp.group];
+    const maxH=g?Math.max(...g.map(id=>S.properties[id]?.houses||0)):0;
+    const canSell=pr.houses>=maxH; // even-sell rule
+    const it=document.createElement('div');it.className='build-item';
+    it.innerHTML=`<span style="color:${COLORS[sp.group]||'#555'}">■</span> ${sp.name} (${pr.houses===5?'Hotel':pr.houses+'H'})`;
+    const bt=document.createElement('button');bt.style.background='#e67e22';bt.textContent=`Verkaufen (+${refund}€)`;
+    bt.disabled=!canSell;
+    bt.onclick=()=>{doAction({type:'sell_house',spaceId:sid});setTimeout(()=>{if(canSellHouses())openSellHouses();else closeBuild();},300);};
+    it.appendChild(bt);l.appendChild(it);
+  });
+  document.getElementById('build-modal').classList.add('show');
+}
+
 // Auction
 let auctionInterval=null;
 function renderAuction(){
@@ -471,6 +581,7 @@ function renderAuction(){
   },500);
 }
 function openBuild(){
+  document.querySelector('#build-content h3').textContent='🏠 Häuser / Hotels';
   const l=document.getElementById('build-list');l.innerHTML='';
   SPACES.forEach((sp,idx)=>{if(sp.type!=='property')return;const pr=S.properties[idx];if(!pr||pr.owner!==myIdx||pr.mortgaged)return;const g=GM[sp.group];if(!g||!g.every(id=>S.properties[id]&&S.properties[id].owner===myIdx&&!S.properties[id].mortgaged))return;const ok=pr.houses<5&&S.players[myIdx].money>=sp.houseCost;const mn=Math.min(...g.map(id=>S.properties[id]?.houses||0));const ev=pr.houses<=mn;
   const it=document.createElement('div');it.className='build-item';it.innerHTML=`<span style="color:${COLORS[sp.group]}">■</span> ${sp.name} (${pr.houses}H) ${sp.houseCost}€`;
