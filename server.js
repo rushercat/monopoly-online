@@ -37,7 +37,7 @@ const CK=[{text:'Rücke vor bis auf LOS.',action:'moveto',dest:0},{text:'Gehe in
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
 const PC=['#e53935','#1e88e5','#43a047','#fdd835'];
 let game=null;
-function createGame(){game={phase:'lobby',players:[],currentPlayer:0,turnPhase:'roll',doublesCount:0,lastDice:[1,1],properties:{},freeParkingPot:0,log:[],chanceDeck:shuffle([...CC]),communityDeck:shuffle([...CK]),pendingOffer:null,initRolls:{},turnOrder:[],auction:null,pendingCard:null,debtPlayer:-1};}
+function createGame(){game={phase:'lobby',players:[],currentPlayer:0,turnPhase:'roll',doublesCount:0,lastDice:[1,1],properties:{},freeParkingPot:0,log:[],chanceDeck:shuffle([...CC]),communityDeck:shuffle([...CK]),pendingOffer:null,initRolls:{},turnOrder:[],auction:null,pendingCard:null,debtPlayer:-1,debtCreditor:-1,houseRules:{freeParkingPot:true,landOnGo400:false,jailExtraRolls:false}};}
 createGame();
 let auctionTimer=null;
 function clearAuction(){if(auctionTimer){clearTimeout(auctionTimer);auctionTimer=null;}game.auction=null;}
@@ -61,7 +61,7 @@ function endAuction(){
 }
 function cc(){return game.players.length?game.players[game.currentPlayer]?.color||'#888':'#888';}
 function addLog(msg,color){game.log.push({text:msg,color:color||cc()});if(game.log.length>100)game.log.shift();}
-function getState(fi){return{phase:game.phase,players:game.players.map(p=>({name:p.name,color:p.color,money:p.money,pos:p.pos,bankrupt:p.bankrupt,inJail:p.inJail,jailTurns:p.jailTurns,jailFreeCards:p.jailFreeCards,connected:p.connected})),currentPlayer:game.currentPlayer,turnPhase:game.turnPhase,doublesCount:game.doublesCount,lastDice:game.lastDice,properties:game.properties,freeParkingPot:game.freeParkingPot,log:game.log,you:fi,pendingOffer:game.pendingOffer,initRolls:game.initRolls,turnOrder:game.turnOrder,groupOrder:GO,auction:game.auction?{spaceId:game.auction.spaceId,highBid:game.auction.highBid,highBidder:game.auction.highBidder,endTime:game.auction.endTime}:null,pendingCard:game.pendingCard,debtPlayer:game.debtPlayer};}
+function getState(fi){return{phase:game.phase,players:game.players.map(p=>({name:p.name,color:p.color,money:p.money,pos:p.pos,bankrupt:p.bankrupt,inJail:p.inJail,jailTurns:p.jailTurns,jailFreeCards:p.jailFreeCards,jailRollsThisTurn:p.jailRollsThisTurn||0,connected:p.connected})),currentPlayer:game.currentPlayer,turnPhase:game.turnPhase,doublesCount:game.doublesCount,lastDice:game.lastDice,properties:game.properties,freeParkingPot:game.freeParkingPot,log:game.log,you:fi,pendingOffer:game.pendingOffer,initRolls:game.initRolls,turnOrder:game.turnOrder,groupOrder:GO,auction:game.auction?{spaceId:game.auction.spaceId,highBid:game.auction.highBid,highBidder:game.auction.highBidder,endTime:game.auction.endTime}:null,pendingCard:game.pendingCard,debtPlayer:game.debtPlayer,debtCreditor:game.debtCreditor,houseRules:game.houseRules};}
 function broadcastState(){for(const[ws,info]of clients)sendTo(ws,{type:'state',state:getState(info.playerIdx)});}
 function calcRent(sid){const sp=SPACES[sid],prop=game.properties[sid];if(!prop||prop.mortgaged)return 0;const ow=prop.owner;if(sp.type==='railroad'){const c=[5,15,25,35].filter(id=>game.properties[id]&&game.properties[id].owner===ow&&!game.properties[id].mortgaged).length;return[25,50,100,200][c-1]||25;}if(sp.type==='utility'){const c=[12,28].filter(id=>game.properties[id]&&game.properties[id].owner===ow&&!game.properties[id].mortgaged).length;return c===2?(game.lastDice[0]+game.lastDice[1])*10:(game.lastDice[0]+game.lastDice[1])*4;}if(sp.type==='property'){if(prop.houses>0)return sp.rent[prop.houses];const g=GM[sp.group];return(g&&g.every(id=>game.properties[id]&&game.properties[id].owner===ow&&!game.properties[id].mortgaged))?sp.rent[0]*2:sp.rent[0];}return 0;}
 function mv(sid){return Math.floor(SPACES[sid].price/2);}
@@ -85,10 +85,27 @@ function enterDebt(pl,idx){
   addLog(`⚠️ ${pl.name} hat ${pl.money}€ – muss Schulden begleichen!`);
 }
 function goBankrupt(pl,idx){
-  pl.bankrupt=true;addLog(`💀 ${pl.name} ist bankrott!`);game.debtPlayer=-1;
-  Object.keys(game.properties).forEach(s=>{if(game.properties[s].owner===idx)delete game.properties[s];});
+  pl.bankrupt=true;addLog(`💀 ${pl.name} ist bankrott!`);
+  const creditor=game.debtCreditor;
+  game.debtPlayer=-1;game.debtCreditor=-1;
+  if(creditor>=0&&creditor!==idx&&game.players[creditor]&&!game.players[creditor].bankrupt){
+    // Transfer all properties to creditor
+    Object.keys(game.properties).forEach(s=>{if(game.properties[s].owner===idx){game.properties[s].owner=creditor;addLog(`📦 ${SPACES[s].name} geht an ${game.players[creditor].name}`);}});
+    // Transfer remaining money (even if negative, creditor already got it via rent)
+  }else{
+    // No creditor (bank/tax) - properties go back to bank
+    Object.keys(game.properties).forEach(s=>{if(game.properties[s].owner===idx)delete game.properties[s];});
+  }
   const alive=game.players.filter(p=>!p.bankrupt);
   if(alive.length<=1){game.phase='gameover';if(alive.length===1)addLog(`🏆 ${alive[0].name} gewinnt!`);}
+  else{
+    // Auto-advance turn if bankrupt player was current
+    if(game.currentPlayer===idx){
+      game.doublesCount=0;
+      do{game.currentPlayer=(game.currentPlayer+1)%game.players.length;}while(game.players[game.currentPlayer].bankrupt&&alive.length>1);
+      game.turnPhase='roll';addLog(`── ${game.players[game.currentPlayer].name} ist dran ──`);
+    }
+  }
 }
 function checkBankrupt(pl,idx){
   if(pl.money<0){enterDebt(pl,idx);}
@@ -109,20 +126,20 @@ function execCard(pl,idx,card){
     case'moveto':moveTo(pl,idx,card.dest,true);return;
     case'jail':goToJail(pl);break;
     case'gain':pl.money+=card.amount;addLog(`💰 +${card.amount}€`);break;
-    case'pay':pl.money-=card.amount;game.freeParkingPot+=card.amount;addLog(`💸 -${card.amount}€ → Topf`);checkBankrupt(pl,idx);break;
-    case'repair':{let c=0;Object.values(game.properties).forEach(p=>{if(p.owner===idx)c+=p.houses===5?card.hotel:p.houses*card.house;});pl.money-=c;game.freeParkingPot+=c;addLog(`🔧 -${c}€ → Topf`);checkBankrupt(pl,idx);break;}
+    case'pay':pl.money-=card.amount;if(game.houseRules.freeParkingPot)game.freeParkingPot+=card.amount;addLog(`💸 -${card.amount}€${game.houseRules.freeParkingPot?' → Topf':''}`);game.debtCreditor=-1;checkBankrupt(pl,idx);break;
+    case'repair':{let c=0;Object.values(game.properties).forEach(p=>{if(p.owner===idx)c+=p.houses===5?card.hotel:p.houses*card.house;});pl.money-=c;if(game.houseRules.freeParkingPot)game.freeParkingPot+=c;addLog(`🔧 -${c}€${game.houseRules.freeParkingPot?' → Topf':''}`);game.debtCreditor=-1;checkBankrupt(pl,idx);break;}
     case'payall':{let t=0;game.players.forEach((o,oi)=>{if(oi!==idx&&!o.bankrupt){t+=card.amount;o.money+=card.amount;}});pl.money-=t;checkBankrupt(pl,idx);break;}
     case'collectall':game.players.forEach((o,oi)=>{if(oi!==idx&&!o.bankrupt){o.money-=card.amount;pl.money+=card.amount;}});break;
     case'jailcard':pl.jailFreeCards++;addLog(`🎫 Gefängnis-Freikarte!`);break;
     case'back3':pl.pos=(pl.pos-3+40)%40;landOn(pl,idx);return;
   }
 }
-function landOn(pl,idx){const sp=SPACES[pl.pos];addLog(`📍 ${pl.name} → ${sp.name}`);switch(sp.type){case'property':case'railroad':case'utility':if(game.properties[pl.pos]&&game.properties[pl.pos].owner!==idx){const pr=game.properties[pl.pos],ow=game.players[pr.owner];if(!ow.bankrupt&&!pr.mortgaged){const r=calcRent(pl.pos);addLog(`💸 ${pl.name} zahlt ${r}€ an ${ow.name}`);pl.money-=r;ow.money+=r;checkBankrupt(pl,idx);}else if(pr.mortgaged){addLog(`🏦 ${sp.name} hat Hypothek – keine Miete`);}}break;case'tax':addLog(`💸 -${sp.amount}€ Steuer → Topf`);pl.money-=sp.amount;game.freeParkingPot+=sp.amount;checkBankrupt(pl,idx);break;case'gotojail':goToJail(pl);break;case'chance':drawCard(pl,idx,'chance');return;case'community':drawCard(pl,idx,'community');return;case'free':if(game.freeParkingPot>0){addLog(`🎉 ${pl.name} kassiert ${game.freeParkingPot}€!`);pl.money+=game.freeParkingPot;game.freeParkingPot=0;}break;}}
+function landOn(pl,idx){const sp=SPACES[pl.pos];addLog(`📍 ${pl.name} → ${sp.name}`);switch(sp.type){case'property':case'railroad':case'utility':if(game.properties[pl.pos]&&game.properties[pl.pos].owner!==idx){const pr=game.properties[pl.pos],ow=game.players[pr.owner];if(!ow.bankrupt&&!pr.mortgaged){const r=calcRent(pl.pos);addLog(`💸 ${pl.name} zahlt ${r}€ an ${ow.name}`);pl.money-=r;ow.money+=r;game.debtCreditor=pr.owner;checkBankrupt(pl,idx);}else if(pr.mortgaged){addLog(`🏦 ${sp.name} hat Hypothek – keine Miete`);}}break;case'tax':addLog(`💸 -${sp.amount}€ Steuer → Topf`);pl.money-=sp.amount;if(game.houseRules.freeParkingPot)game.freeParkingPot+=sp.amount;game.debtCreditor=-1;checkBankrupt(pl,idx);break;case'gotojail':goToJail(pl);break;case'chance':drawCard(pl,idx,'chance');return;case'community':drawCard(pl,idx,'community');return;case'free':if(game.houseRules.freeParkingPot&&game.freeParkingPot>0){addLog(`🎉 ${pl.name} kassiert ${game.freeParkingPot}€!`);pl.money+=game.freeParkingPot;game.freeParkingPot=0;}break;case'go':if(game.houseRules.landOnGo400){pl.money+=200;addLog(`🎯 Direkt auf LOS! Bonus +200€ (gesamt 400€)`);}break;}}
 function moveP(pl,idx,steps){const o=pl.pos,n=(pl.pos+steps)%40;if(n<o||(o!==0&&n===0)){pl.money+=200;addLog(`→ LOS +200€`);}pl.pos=n;game.turnPhase='postroll';landOn(pl,idx);}
 function moveTo(pl,idx,dest,cg){if(cg&&dest<pl.pos){pl.money+=200;addLog(`→ LOS +200€`);}pl.pos=dest;landOn(pl,idx);}
 function handleAction(pi,action){if(game.phase!=='playing')return;const pl=game.players[pi];if(!pl||pl.bankrupt)return;
 // Block most actions during auction
-if(game.auction&&action.type!=='bid'&&action.type!=='abort')return;
+if(game.auction&&!['bid','abort','mortgage','unmortgage'].includes(action.type))return;
 // Handle confirm_card
 if(action.type==='confirm_card'){
   if(!game.pendingCard||game.pendingCard.playerIdx!==pi)return;
@@ -160,7 +177,15 @@ if(game.debtPlayer===pi){
 // Block actions during pendingCard (only confirm_card allowed, handled above)
 if(game.pendingCard)return;
 switch(action.type){
-case'roll':{if(game.currentPlayer!==pi||game.turnPhase!=='roll')return;const d1=Math.floor(Math.random()*6)+1,d2=Math.floor(Math.random()*6)+1;game.lastDice=[d1,d2];const t=d1+d2,db=d1===d2;addLog(`🎲 ${d1}+${d2}=${t}${db?' (Pasch!)':''}`);if(pl.inJail){if(db){pl.inJail=false;pl.jailTurns=0;addLog(`Frei (Pasch)!`);moveP(pl,pi,t);}else{pl.jailTurns++;if(pl.jailTurns>=3){pl.inJail=false;pl.jailTurns=0;pl.money-=50;addLog(`50€ → frei`);moveP(pl,pi,t);}else{addLog(`Gefängnis (${pl.jailTurns}/3)`);game.turnPhase='postroll';game.doublesCount=0;}}}else{if(db){game.doublesCount++;if(game.doublesCount>=3){addLog(`3x Pasch → Gefängnis!`);goToJail(pl);game.turnPhase='postroll';game.doublesCount=0;break;}}else game.doublesCount=0;moveP(pl,pi,t);}break;}
+case'roll':{if(game.currentPlayer!==pi||game.turnPhase!=='roll')return;const d1=Math.floor(Math.random()*6)+1,d2=Math.floor(Math.random()*6)+1;game.lastDice=[d1,d2];const t=d1+d2,db=d1===d2;addLog(`🎲 ${d1}+${d2}=${t}${db?' (Pasch!)':''}`);if(pl.inJail){if(db){pl.inJail=false;pl.jailTurns=0;pl.jailRollsThisTurn=0;addLog(`Frei (Pasch)!`);moveP(pl,pi,t);}else{
+const maxRolls=game.houseRules.jailExtraRolls?3:1;
+pl.jailRollsThisTurn=(pl.jailRollsThisTurn||0)+1;
+if(pl.jailRollsThisTurn>=maxRolls){
+  pl.jailTurns++;pl.jailRollsThisTurn=0;
+  if(pl.jailTurns>=3){pl.inJail=false;pl.jailTurns=0;pl.money-=50;addLog(`50€ → frei nach 3 Runden`);moveP(pl,pi,t);}
+  else{addLog(`Gefängnis (Runde ${pl.jailTurns}/3)`);game.turnPhase='postroll';game.doublesCount=0;}
+}else{addLog(`Kein Pasch (Versuch ${pl.jailRollsThisTurn}/${maxRolls})`);/* stay in roll phase */}
+}}else{if(db){game.doublesCount++;if(game.doublesCount>=3){addLog(`3x Pasch → Gefängnis!`);goToJail(pl);game.turnPhase='postroll';game.doublesCount=0;break;}}else game.doublesCount=0;moveP(pl,pi,t);}break;}
 case'buy':{if(game.currentPlayer!==pi||game.turnPhase!=='postroll')return;const sp=SPACES[pl.pos];if(!['property','railroad','utility'].includes(sp.type)||game.properties[pl.pos]||pl.money<sp.price)return;pl.money-=sp.price;game.properties[pl.pos]={owner:pi,houses:0,mortgaged:false};addLog(`🏠 ${pl.name} kauft ${sp.name} (${sp.price}€)`);break;}
 case'auction_start':{if(game.currentPlayer!==pi||game.turnPhase!=='postroll')return;const sp=SPACES[pl.pos];if(!['property','railroad','utility'].includes(sp.type)||game.properties[pl.pos])return;addLog(`🔨 ${pl.name} will ${sp.name} nicht kaufen → Auktion!`);startAuction(pl.pos,pi);return;}
 case'bid':{if(!game.auction)return;const a=game.auction;const amount=parseInt(action.amount);if(![10,50,100].includes(amount))return;const newBid=a.highBid+amount;if(pl.money<newBid)return;a.highBid=newBid;a.highBidder=pi;a.endTime=Date.now()+10000;addLog(`🔨 ${pl.name} bietet ${newBid}€!`,pl.color);if(auctionTimer)clearTimeout(auctionTimer);auctionTimer=setTimeout(endAuction,10000);broadcastState();return;}
@@ -183,7 +208,8 @@ ws.on('message',(raw)=>{try{const msg=JSON.parse(raw.toString()),info=clients.ge
 info.alive=true; // Mark alive on any message
 if(msg.type==='ping'){sendTo(ws,{type:'pong'});return;}
 switch(msg.type){
-case'join':{if(game.phase!=='lobby'){sendTo(ws,{type:'error',text:'Spiel läuft.'});return;}if(game.players.length>=4){sendTo(ws,{type:'error',text:'Voll.'});return;}const name=(msg.name||'Spieler').substring(0,16),idx=game.players.length,token=crypto.randomUUID();game.players.push({name,color:PC[idx],money:1500,pos:0,bankrupt:false,inJail:false,jailTurns:0,jailFreeCards:0,connected:true});info.playerIdx=idx;playerTokens.set(token,idx);addLog(`👋 ${name} beigetreten (${game.players.length}/4)`,'#888');sendTo(ws,{type:'joined',playerIdx:idx,token});broadcastState();break;}
+case'join':{if(game.phase!=='lobby'){sendTo(ws,{type:'error',text:'Spiel läuft.'});return;}if(game.players.length>=4){sendTo(ws,{type:'error',text:'Voll.'});return;}const name=(msg.name||'Spieler').substring(0,16),idx=game.players.length,token=crypto.randomUUID();game.players.push({name,color:PC[idx],money:1500,pos:0,bankrupt:false,inJail:false,jailTurns:0,jailFreeCards:0,jailRollsThisTurn:0,connected:true});info.playerIdx=idx;playerTokens.set(token,idx);addLog(`👋 ${name} beigetreten (${game.players.length}/4)`,'#888');sendTo(ws,{type:'joined',playerIdx:idx,token});broadcastState();break;}
+case'set_rules':{if(game.phase!=='lobby')return;const r=msg.rules;if(r&&typeof r==='object'){if(typeof r.freeParkingPot==='boolean')game.houseRules.freeParkingPot=r.freeParkingPot;if(typeof r.landOnGo400==='boolean')game.houseRules.landOnGo400=r.landOnGo400;if(typeof r.jailExtraRolls==='boolean')game.houseRules.jailExtraRolls=r.jailExtraRolls;addLog(`⚙️ Hausregeln geändert.`,'#888');}broadcastState();break;}
 case'rejoin':{const token=msg.token;if(!token||!playerTokens.has(token)){sendTo(ws,{type:'error',text:'Ungültiger Token.'});sendTo(ws,{type:'state',state:getState(-1)});return;}const idx=playerTokens.get(token);if(idx>=0&&game.players[idx]){info.playerIdx=idx;game.players[idx].connected=true;addLog(`🔄 ${game.players[idx].name} wieder da!`,'#888');sendTo(ws,{type:'rejoined',playerIdx:idx});broadcastState();}break;}
 case'start':{if(game.phase!=='lobby'||game.players.length<2){sendTo(ws,{type:'error',text:'Mind. 2 Spieler.'});return;}game.phase='rolling_order';game.initRolls={};game.turnOrder=[];addLog(`🎲 Alle würfeln!`,'#888');broadcastState();break;}
 case'action':{if(info.playerIdx<0)return;
