@@ -1,0 +1,14 @@
+{
+  "name": "monopoly-online",
+  "version": "1.0.0",
+  "description": "Deutsches Monopoly Online - 2-4 Spieler im Browser",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": ["monopoly", "game", "multiplayer"],
+  "license": "MIT"
+}
