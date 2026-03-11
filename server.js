@@ -177,9 +177,12 @@ case'trade_reject':{const o=game.pendingOffer;if(!o||o.to!==pi)return;addLog(`�
 case'trade_counter':{const o=game.pendingOffer;if(!o||o.to!==pi)return;const{offerMoney,requestMoney,offerProps,requestProps}=action;if(offerMoney>pl.money||requestMoney>game.players[o.from].money)return;game.pendingOffer={from:pi,to:o.from,offerMoney,requestMoney,offerProps:offerProps||[],requestProps:requestProps||[],round:o.round+1};addLog(`✏️ Gegenangebot`);break;}
 case'trade_cancel':{if(game.pendingOffer&&(game.pendingOffer.from===pi||game.pendingOffer.to===pi)){addLog(`❌ Handel abgebrochen`);game.pendingOffer=null;}break;}
 }broadcastState();}
-wss.on('connection',(ws)=>{const cid=crypto.randomUUID();clients.set(ws,{id:cid,playerIdx:-1});
+wss.on('connection',(ws)=>{const cid=crypto.randomUUID();clients.set(ws,{id:cid,playerIdx:-1,alive:true});
 sendTo(ws,{type:'welcome',id:cid,spaces:SPACES,groupMembers:GM,groupOrder:GO});sendTo(ws,{type:'state',state:getState(-1)});
-ws.on('message',(raw)=>{try{const msg=JSON.parse(raw.toString()),info=clients.get(ws);if(!info)return;switch(msg.type){
+ws.on('message',(raw)=>{try{const msg=JSON.parse(raw.toString()),info=clients.get(ws);if(!info)return;
+info.alive=true; // Mark alive on any message
+if(msg.type==='ping'){sendTo(ws,{type:'pong'});return;}
+switch(msg.type){
 case'join':{if(game.phase!=='lobby'){sendTo(ws,{type:'error',text:'Spiel läuft.'});return;}if(game.players.length>=4){sendTo(ws,{type:'error',text:'Voll.'});return;}const name=(msg.name||'Spieler').substring(0,16),idx=game.players.length,token=crypto.randomUUID();game.players.push({name,color:PC[idx],money:1500,pos:0,bankrupt:false,inJail:false,jailTurns:0,jailFreeCards:0,connected:true});info.playerIdx=idx;playerTokens.set(token,idx);addLog(`👋 ${name} beigetreten (${game.players.length}/4)`,'#888');sendTo(ws,{type:'joined',playerIdx:idx,token});broadcastState();break;}
 case'rejoin':{const token=msg.token;if(!token||!playerTokens.has(token)){sendTo(ws,{type:'error',text:'Ungültiger Token.'});sendTo(ws,{type:'state',state:getState(-1)});return;}const idx=playerTokens.get(token);if(idx>=0&&game.players[idx]){info.playerIdx=idx;game.players[idx].connected=true;addLog(`🔄 ${game.players[idx].name} wieder da!`,'#888');sendTo(ws,{type:'rejoined',playerIdx:idx});broadcastState();}break;}
 case'start':{if(game.phase!=='lobby'||game.players.length<2){sendTo(ws,{type:'error',text:'Mind. 2 Spieler.'});return;}game.phase='rolling_order';game.initRolls={};game.turnOrder=[];addLog(`🎲 Alle würfeln!`,'#888');broadcastState();break;}
@@ -201,3 +204,18 @@ case'reset':{clearAuction();createGame();playerTokens.clear();for(const[,ci]of c
 ws.on('close',()=>{const info=clients.get(ws);if(info&&info.playerIdx>=0&&game.players[info.playerIdx]){game.players[info.playerIdx].connected=false;addLog(`⚡ ${game.players[info.playerIdx].name} getrennt.`,'#888');}clients.delete(ws);broadcastState();});
 ws.on('error',()=>{clients.delete(ws);});});
 server.listen(PORT,'0.0.0.0',()=>{console.log(`\n🎲 MONOPOLY ONLINE v2 – Port ${PORT}\n`);});
+
+// Keepalive: ping all clients every 25s, kill dead ones
+setInterval(()=>{
+  for(const[ws,info]of clients){
+    if(!info.alive){ws.terminate();clients.delete(ws);continue;}
+    info.alive=false;
+    try{ws.ping();}catch{}
+  }
+},25000);
+
+// Keep Render alive: self-ping every 5 min
+if(process.env.RENDER){
+  const url=process.env.RENDER_EXTERNAL_URL;
+  if(url){setInterval(()=>{const http=require(url.startsWith('https')?'https':'http');http.get(url,()=>{}).on('error',()=>{});},4*60*1000);}
+}
