@@ -1,21 +1,19 @@
 // ═══════════════════════════════════════════════════
-//  MONOPOLY ONLINE – Pure Node.js Server (0 deps)
+//  MONOPOLY ONLINE – Node.js + ws Library
 // ═══════════════════════════════════════════════════
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { WebSocketServer } = require('ws');
 
 const PORT = process.env.PORT || 3000;
 
 // ── MIME types ──
 const MIME = {
-  '.html': 'text/html',
-  '.js': 'application/javascript',
-  '.css': 'text/css',
-  '.json': 'application/json',
-  '.png': 'image/png',
-  '.ico': 'image/x-icon',
+  '.html': 'text/html', '.js': 'application/javascript',
+  '.css': 'text/css', '.json': 'application/json',
+  '.png': 'image/png', '.ico': 'image/x-icon',
 };
 
 // ── HTTP Server ──
@@ -23,120 +21,30 @@ const server = http.createServer((req, res) => {
   let filePath = path.join(__dirname, 'public', req.url === '/' ? 'index.html' : req.url);
   const ext = path.extname(filePath);
   const mime = MIME[ext] || 'application/octet-stream';
-
   fs.readFile(filePath, (err, data) => {
-    if (err) {
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('404 Not Found');
-      return;
-    }
-    res.writeHead(200, {
-      'Content-Type': mime,
-      'Access-Control-Allow-Origin': '*',
-      'ngrok-skip-browser-warning': 'true',
-    });
+    if (err) { res.writeHead(404); res.end('404'); return; }
+    res.writeHead(200, { 'Content-Type': mime, 'Access-Control-Allow-Origin': '*' });
     res.end(data);
   });
 });
 
-// ── WebSocket Server (RFC 6455, manual) ──
-const clients = new Map(); // ws -> { id, playerIdx }
-const playerTokens = new Map(); // token -> playerIdx
-
-function acceptWebSocket(req, socket) {
-  const key = req.headers['sec-websocket-key'];
-  const hash = crypto.createHash('sha1')
-    .update(key + '258EAFA5-E914-47DA-95CA-5B8B6CE3AC10')
-    .digest('base64');
-
-  socket.write(
-    'HTTP/1.1 101 Switching Protocols\r\n' +
-    'Upgrade: websocket\r\n' +
-    'Connection: Upgrade\r\n' +
-    `Sec-WebSocket-Accept: ${hash}\r\n\r\n`
-  );
-  return socket;
-}
-
-function encodeFrame(data) {
-  const json = JSON.stringify(data);
-  const buf = Buffer.from(json, 'utf8');
-  const len = buf.length;
-  let header;
-  if (len < 126) {
-    header = Buffer.alloc(2);
-    header[0] = 0x81;
-    header[1] = len;
-  } else if (len < 65536) {
-    header = Buffer.alloc(4);
-    header[0] = 0x81;
-    header[1] = 126;
-    header.writeUInt16BE(len, 2);
-  } else {
-    header = Buffer.alloc(10);
-    header[0] = 0x81;
-    header[1] = 127;
-    header.writeBigUInt64BE(BigInt(len), 2);
-  }
-  return Buffer.concat([header, buf]);
-}
-
-function decodeFrame(buffer) {
-  if (buffer.length < 2) return null;
-  const opcode = buffer[0] & 0x0f;
-  if (opcode === 0x8) return { opcode: 'close' };
-  if (opcode === 0x9) return { opcode: 'ping' };
-
-  const masked = (buffer[1] & 0x80) !== 0;
-  let payloadLen = buffer[1] & 0x7f;
-  let offset = 2;
-
-  if (payloadLen === 126) {
-    payloadLen = buffer.readUInt16BE(2);
-    offset = 4;
-  } else if (payloadLen === 127) {
-    payloadLen = Number(buffer.readBigUInt64BE(2));
-    offset = 10;
-  }
-
-  let mask = null;
-  if (masked) {
-    mask = buffer.slice(offset, offset + 4);
-    offset += 4;
-  }
-
-  const payload = buffer.slice(offset, offset + payloadLen);
-  if (mask) {
-    for (let i = 0; i < payload.length; i++) {
-      payload[i] ^= mask[i % 4];
-    }
-  }
-
-  try {
-    return { opcode: 'text', data: JSON.parse(payload.toString('utf8')) };
-  } catch {
-    return null;
-  }
-}
+// ── WebSocket Server (ws library) ──
+const wss = new WebSocketServer({ server });
+const clients = new Map();
+const playerTokens = new Map();
 
 function broadcast(data) {
-  const frame = encodeFrame(data);
+  const msg = JSON.stringify(data);
   for (const [ws] of clients) {
-    try { ws.write(frame); } catch {}
+    try { if (ws.readyState === 1) ws.send(msg); } catch {}
   }
 }
 
 function sendTo(ws, data) {
-  try { ws.write(encodeFrame(data)); } catch {}
+  try { if (ws.readyState === 1) ws.send(JSON.stringify(data)); } catch {}
 }
 
 // ── GAME STATE ──
-const COLORS_MAP = {
-  brown: '#795548', lblue: '#81d4fa', pink: '#f48fb1',
-  orange: '#ff9800', red: '#f44336', yellow: '#ffeb3b',
-  green: '#4caf50', dblue: '#1565c0'
-};
-
 const SPACES = [
   { id: 0, name: 'LOS', type: 'go' },
   { id: 1, name: 'Badstraße', type: 'property', group: 'brown', price: 60, rent: [2, 10, 30, 90, 160, 250], houseCost: 50 },
@@ -225,20 +133,12 @@ function shuffle(arr) {
   return arr;
 }
 
-// Game state
 let game = null;
-
 function createGame() {
   game = {
-    phase: 'lobby', // lobby, playing, gameover
-    players: [],
-    currentPlayer: 0,
-    turnPhase: 'roll', // roll, postroll
-    doublesCount: 0,
-    lastDice: [1, 1],
-    properties: {},
-    freeParkingPot: 0,
-    log: [],
+    phase: 'lobby', players: [], currentPlayer: 0,
+    turnPhase: 'roll', doublesCount: 0, lastDice: [1, 1],
+    properties: {}, freeParkingPot: 0, log: [],
     chanceDeck: shuffle([...CHANCE_CARDS]),
     communityDeck: shuffle([...COMMUNITY_CARDS]),
     pendingOffer: null,
@@ -246,10 +146,7 @@ function createGame() {
 }
 createGame();
 
-function addLog(msg) {
-  game.log.push(msg);
-  if (game.log.length > 100) game.log.shift();
-}
+function addLog(msg) { game.log.push(msg); if (game.log.length > 100) game.log.shift(); }
 
 function getState(forPlayerIdx) {
   return {
@@ -259,15 +156,10 @@ function getState(forPlayerIdx) {
       pos: p.pos, bankrupt: p.bankrupt, inJail: p.inJail,
       jailTurns: p.jailTurns, jailFreeCards: p.jailFreeCards, connected: p.connected,
     })),
-    currentPlayer: game.currentPlayer,
-    turnPhase: game.turnPhase,
-    doublesCount: game.doublesCount,
-    lastDice: game.lastDice,
-    properties: game.properties,
-    freeParkingPot: game.freeParkingPot,
-    log: game.log,
-    you: forPlayerIdx,
-    pendingOffer: game.pendingOffer,
+    currentPlayer: game.currentPlayer, turnPhase: game.turnPhase,
+    doublesCount: game.doublesCount, lastDice: game.lastDice,
+    properties: game.properties, freeParkingPot: game.freeParkingPot,
+    log: game.log, you: forPlayerIdx, pendingOffer: game.pendingOffer,
   };
 }
 
@@ -277,557 +169,248 @@ function broadcastState() {
   }
 }
 
-function broadcastLog(msg) {
-  addLog(msg);
-  broadcastState();
-}
-
 // ── GAME LOGIC ──
 const PLAYER_COLORS = ['#e53935', '#1e88e5', '#43a047', '#fdd835'];
 
 function calcRent(spaceId) {
-  const sp = SPACES[spaceId];
-  const prop = game.properties[spaceId];
-  if (!prop) return 0;
-  const owner = prop.owner;
-
+  const sp = SPACES[spaceId]; const prop = game.properties[spaceId];
+  if (!prop) return 0; const owner = prop.owner;
   if (sp.type === 'railroad') {
-    const railCount = [5, 15, 25, 35].filter(id => game.properties[id] && game.properties[id].owner === owner).length;
-    return [25, 50, 100, 200][railCount - 1] || 25;
+    const c = [5, 15, 25, 35].filter(id => game.properties[id] && game.properties[id].owner === owner).length;
+    return [25, 50, 100, 200][c - 1] || 25;
   }
   if (sp.type === 'utility') {
-    const utilCount = [12, 28].filter(id => game.properties[id] && game.properties[id].owner === owner).length;
-    const diceTotal = game.lastDice[0] + game.lastDice[1];
-    return utilCount === 2 ? diceTotal * 10 : diceTotal * 4;
+    const c = [12, 28].filter(id => game.properties[id] && game.properties[id].owner === owner).length;
+    return c === 2 ? (game.lastDice[0] + game.lastDice[1]) * 10 : (game.lastDice[0] + game.lastDice[1]) * 4;
   }
   if (sp.type === 'property') {
     if (prop.houses > 0) return sp.rent[prop.houses];
-    const groupIds = GROUP_MEMBERS[sp.group];
-    const ownsAll = groupIds && groupIds.every(id => game.properties[id] && game.properties[id].owner === owner);
-    return ownsAll ? sp.rent[0] * 2 : sp.rent[0];
+    const g = GROUP_MEMBERS[sp.group];
+    return (g && g.every(id => game.properties[id] && game.properties[id].owner === owner)) ? sp.rent[0] * 2 : sp.rent[0];
   }
   return 0;
 }
 
 function checkBankrupt(pl, idx) {
   if (pl.money < 0) {
-    pl.bankrupt = true;
-    addLog(`💀 ${pl.name} ist bankrott!`);
-    Object.keys(game.properties).forEach(sid => {
-      if (game.properties[sid].owner === idx) delete game.properties[sid];
-    });
+    pl.bankrupt = true; addLog(`💀 ${pl.name} ist bankrott!`);
+    Object.keys(game.properties).forEach(sid => { if (game.properties[sid].owner === idx) delete game.properties[sid]; });
     const alive = game.players.filter(p => !p.bankrupt);
-    if (alive.length <= 1) {
-      game.phase = 'gameover';
-      if (alive.length === 1) addLog(`🏆 ${alive[0].name} gewinnt!`);
-    }
+    if (alive.length <= 1) { game.phase = 'gameover'; if (alive.length === 1) addLog(`🏆 ${alive[0].name} gewinnt!`); }
   }
 }
 
-function goToJail(pl) {
-  pl.pos = 10;
-  pl.inJail = true;
-  pl.jailTurns = 0;
-  addLog(`🔒 ${pl.name} geht ins Gefängnis!`);
-}
+function goToJail(pl) { pl.pos = 10; pl.inJail = true; pl.jailTurns = 0; addLog(`🔒 ${pl.name} geht ins Gefängnis!`); }
 
 function executeCard(pl, idx, card) {
   addLog(`📋 Karte: ${card.text}`);
   switch (card.action) {
-    case 'moveto':
-      movePlayerTo(pl, idx, card.dest, true);
-      return; // movePlayerTo calls landOn
-    case 'jail':
-      goToJail(pl);
-      break;
-    case 'gain':
-      pl.money += card.amount;
-      addLog(`💰 ${pl.name} erhält ${card.amount}€.`);
-      break;
-    case 'pay':
-      pl.money -= card.amount;
-      game.freeParkingPot += card.amount;
-      addLog(`💸 ${pl.name} zahlt ${card.amount}€ → Frei-Parken-Topf.`);
-      checkBankrupt(pl, idx);
-      break;
+    case 'moveto': movePlayerTo(pl, idx, card.dest, true); return;
+    case 'jail': goToJail(pl); break;
+    case 'gain': pl.money += card.amount; addLog(`💰 ${pl.name} erhält ${card.amount}€.`); break;
+    case 'pay': pl.money -= card.amount; game.freeParkingPot += card.amount; addLog(`💸 ${pl.name} zahlt ${card.amount}€ → Topf.`); checkBankrupt(pl, idx); break;
     case 'repair': {
       let cost = 0;
-      Object.values(game.properties).forEach(prop => {
-        if (prop.owner === idx) {
-          cost += prop.houses === 5 ? card.hotel : prop.houses * card.house;
-        }
-      });
-      pl.money -= cost;
-      game.freeParkingPot += cost;
-      addLog(`🔧 ${pl.name} zahlt ${cost}€ Reparaturen → Topf.`);
-      checkBankrupt(pl, idx);
-      break;
+      Object.values(game.properties).forEach(prop => { if (prop.owner === idx) cost += prop.houses === 5 ? card.hotel : prop.houses * card.house; });
+      pl.money -= cost; game.freeParkingPot += cost; addLog(`🔧 ${pl.name} zahlt ${cost}€ → Topf.`); checkBankrupt(pl, idx); break;
     }
     case 'payall': {
-      let total = 0;
-      game.players.forEach((o, oi) => {
-        if (oi !== idx && !o.bankrupt) { total += card.amount; o.money += card.amount; }
-      });
-      pl.money -= total;
-      checkBankrupt(pl, idx);
-      break;
+      let t = 0; game.players.forEach((o, oi) => { if (oi !== idx && !o.bankrupt) { t += card.amount; o.money += card.amount; } });
+      pl.money -= t; checkBankrupt(pl, idx); break;
     }
-    case 'collectall':
-      game.players.forEach((o, oi) => {
-        if (oi !== idx && !o.bankrupt) { o.money -= card.amount; pl.money += card.amount; }
-      });
-      break;
-    case 'jailcard':
-      pl.jailFreeCards++;
-      addLog(`🎫 ${pl.name} hat eine Gefängnis-Freikarte!`);
-      break;
-    case 'back3':
-      pl.pos = (pl.pos - 3 + 40) % 40;
-      landOn(pl, idx);
-      return;
+    case 'collectall': game.players.forEach((o, oi) => { if (oi !== idx && !o.bankrupt) { o.money -= card.amount; pl.money += card.amount; } }); break;
+    case 'jailcard': pl.jailFreeCards++; addLog(`🎫 ${pl.name} hat eine Gefängnis-Freikarte!`); break;
+    case 'back3': pl.pos = (pl.pos - 3 + 40) % 40; landOn(pl, idx); return;
   }
 }
 
 function landOn(pl, idx) {
-  const sp = SPACES[pl.pos];
-  addLog(`📍 ${pl.name} landet auf ${sp.name}.`);
-
+  const sp = SPACES[pl.pos]; addLog(`📍 ${pl.name} landet auf ${sp.name}.`);
   switch (sp.type) {
-    case 'property':
-    case 'railroad':
-    case 'utility':
+    case 'property': case 'railroad': case 'utility':
       if (game.properties[pl.pos] && game.properties[pl.pos].owner !== idx) {
         const owner = game.players[game.properties[pl.pos].owner];
-        if (!owner.bankrupt) {
-          const rent = calcRent(pl.pos);
-          addLog(`💸 ${pl.name} zahlt ${rent}€ Miete an ${owner.name}.`);
-          pl.money -= rent;
-          owner.money += rent;
-          checkBankrupt(pl, idx);
-        }
-      }
-      break;
-    case 'tax':
-      addLog(`💸 ${pl.name} zahlt ${sp.amount}€ Steuer → Topf.`);
-      pl.money -= sp.amount;
-      game.freeParkingPot += sp.amount;
-      checkBankrupt(pl, idx);
-      break;
-    case 'gotojail':
-      goToJail(pl);
-      break;
-    case 'chance': {
-      if (game.chanceDeck.length === 0) game.chanceDeck = shuffle([...CHANCE_CARDS]);
-      const card = game.chanceDeck.pop();
-      executeCard(pl, idx, card);
-      return;
-    }
-    case 'community': {
-      if (game.communityDeck.length === 0) game.communityDeck = shuffle([...COMMUNITY_CARDS]);
-      const card = game.communityDeck.pop();
-      executeCard(pl, idx, card);
-      return;
-    }
-    case 'free':
-      if (game.freeParkingPot > 0) {
-        addLog(`🎉 ${pl.name} kassiert ${game.freeParkingPot}€ vom Frei-Parken-Topf!`);
-        pl.money += game.freeParkingPot;
-        game.freeParkingPot = 0;
-      }
-      break;
-    case 'go':
-      break;
+        if (!owner.bankrupt) { const r = calcRent(pl.pos); addLog(`💸 ${pl.name} zahlt ${r}€ Miete an ${owner.name}.`); pl.money -= r; owner.money += r; checkBankrupt(pl, idx); }
+      } break;
+    case 'tax': addLog(`💸 ${pl.name} zahlt ${sp.amount}€ Steuer → Topf.`); pl.money -= sp.amount; game.freeParkingPot += sp.amount; checkBankrupt(pl, idx); break;
+    case 'gotojail': goToJail(pl); break;
+    case 'chance': { if (game.chanceDeck.length === 0) game.chanceDeck = shuffle([...CHANCE_CARDS]); executeCard(pl, idx, game.chanceDeck.pop()); return; }
+    case 'community': { if (game.communityDeck.length === 0) game.communityDeck = shuffle([...COMMUNITY_CARDS]); executeCard(pl, idx, game.communityDeck.pop()); return; }
+    case 'free': if (game.freeParkingPot > 0) { addLog(`🎉 ${pl.name} kassiert ${game.freeParkingPot}€ vom Topf!`); pl.money += game.freeParkingPot; game.freeParkingPot = 0; } break;
   }
 }
 
 function movePlayer(pl, idx, steps) {
-  const oldPos = pl.pos;
-  const newPos = (pl.pos + steps) % 40;
-  if (newPos < oldPos || (oldPos !== 0 && newPos === 0)) {
-    pl.money += 200;
-    addLog(`${pl.name} geht über LOS → +200€.`);
-  }
-  pl.pos = newPos;
-  game.turnPhase = 'postroll';
-  landOn(pl, idx);
+  const oldPos = pl.pos; const newPos = (pl.pos + steps) % 40;
+  if (newPos < oldPos || (oldPos !== 0 && newPos === 0)) { pl.money += 200; addLog(`${pl.name} → LOS +200€.`); }
+  pl.pos = newPos; game.turnPhase = 'postroll'; landOn(pl, idx);
 }
 
 function movePlayerTo(pl, idx, dest, collectGo) {
-  if (collectGo && dest < pl.pos) {
-    pl.money += 200;
-    addLog(`${pl.name} geht über LOS → +200€.`);
-  }
-  pl.pos = dest;
-  landOn(pl, idx);
+  if (collectGo && dest < pl.pos) { pl.money += 200; addLog(`${pl.name} → LOS +200€.`); }
+  pl.pos = dest; landOn(pl, idx);
 }
 
 // ── ACTION HANDLERS ──
 function handleAction(playerIdx, action) {
   if (game.phase !== 'playing') return;
-  const pl = game.players[playerIdx];
-  if (!pl || pl.bankrupt) return;
+  const pl = game.players[playerIdx]; if (!pl || pl.bankrupt) return;
 
   switch (action.type) {
     case 'roll': {
-      if (game.currentPlayer !== playerIdx) return;
-      if (game.turnPhase !== 'roll') return;
-
-      const d1 = Math.floor(Math.random() * 6) + 1;
-      const d2 = Math.floor(Math.random() * 6) + 1;
-      game.lastDice = [d1, d2];
-      const total = d1 + d2;
-      const isDouble = d1 === d2;
+      if (game.currentPlayer !== playerIdx || game.turnPhase !== 'roll') return;
+      const d1 = Math.floor(Math.random() * 6) + 1, d2 = Math.floor(Math.random() * 6) + 1;
+      game.lastDice = [d1, d2]; const total = d1 + d2, isDouble = d1 === d2;
       addLog(`🎲 ${pl.name} würfelt ${d1}+${d2}=${total}${isDouble ? ' (Pasch!)' : ''}`);
-
       if (pl.inJail) {
-        if (isDouble) {
-          pl.inJail = false;
-          pl.jailTurns = 0;
-          addLog(`${pl.name} ist frei (Pasch)!`);
-          movePlayer(pl, playerIdx, total);
-        } else {
-          pl.jailTurns++;
-          if (pl.jailTurns >= 3) {
-            pl.inJail = false;
-            pl.jailTurns = 0;
-            pl.money -= 50;
-            addLog(`${pl.name} zahlt 50€ → frei nach 3 Runden.`);
-            movePlayer(pl, playerIdx, total);
-          } else {
-            addLog(`${pl.name} bleibt im Gefängnis (${pl.jailTurns}/3).`);
-            game.turnPhase = 'postroll';
-            game.doublesCount = 0;
-          }
-        }
+        if (isDouble) { pl.inJail = false; pl.jailTurns = 0; addLog(`${pl.name} ist frei (Pasch)!`); movePlayer(pl, playerIdx, total); }
+        else { pl.jailTurns++; if (pl.jailTurns >= 3) { pl.inJail = false; pl.jailTurns = 0; pl.money -= 50; addLog(`${pl.name} zahlt 50€ → frei.`); movePlayer(pl, playerIdx, total); } else { addLog(`${pl.name} bleibt im Gefängnis (${pl.jailTurns}/3).`); game.turnPhase = 'postroll'; game.doublesCount = 0; } }
       } else {
-        if (isDouble) {
-          game.doublesCount++;
-          if (game.doublesCount >= 3) {
-            addLog(`3x Pasch → Gefängnis!`);
-            goToJail(pl);
-            game.turnPhase = 'postroll';
-            game.doublesCount = 0;
-            break;
-          }
-        } else {
-          game.doublesCount = 0;
-        }
+        if (isDouble) { game.doublesCount++; if (game.doublesCount >= 3) { addLog(`3x Pasch → Gefängnis!`); goToJail(pl); game.turnPhase = 'postroll'; game.doublesCount = 0; break; } } else { game.doublesCount = 0; }
         movePlayer(pl, playerIdx, total);
-      }
-      break;
+      } break;
     }
-
     case 'buy': {
       if (game.currentPlayer !== playerIdx || game.turnPhase !== 'postroll') return;
-      const sp = SPACES[pl.pos];
-      if (!['property', 'railroad', 'utility'].includes(sp.type)) return;
-      if (game.properties[pl.pos]) return;
-      if (pl.money < sp.price) return;
-      pl.money -= sp.price;
-      game.properties[pl.pos] = { owner: playerIdx, houses: 0 };
-      addLog(`🏠 ${pl.name} kauft ${sp.name} für ${sp.price}€.`);
-      break;
+      const sp = SPACES[pl.pos]; if (!['property', 'railroad', 'utility'].includes(sp.type) || game.properties[pl.pos] || pl.money < sp.price) return;
+      pl.money -= sp.price; game.properties[pl.pos] = { owner: playerIdx, houses: 0 }; addLog(`🏠 ${pl.name} kauft ${sp.name} für ${sp.price}€.`); break;
     }
-
     case 'build': {
       if (game.currentPlayer !== playerIdx || game.turnPhase !== 'postroll') return;
-      const sid = action.spaceId;
-      const sp = SPACES[sid];
-      if (!sp || sp.type !== 'property') return;
-      const prop = game.properties[sid];
-      if (!prop || prop.owner !== playerIdx) return;
-      const groupIds = GROUP_MEMBERS[sp.group];
-      if (!groupIds || !groupIds.every(id => game.properties[id] && game.properties[id].owner === playerIdx)) return;
-      if (prop.houses >= 5) return;
-      if (pl.money < sp.houseCost) return;
-      // Even build rule
-      const minH = Math.min(...groupIds.map(id => game.properties[id]?.houses || 0));
-      if (prop.houses > minH) return;
-      pl.money -= sp.houseCost;
-      prop.houses++;
-      addLog(`🏗️ ${pl.name} baut auf ${sp.name} (${prop.houses === 5 ? 'Hotel' : prop.houses + ' Häuser'}).`);
-      break;
+      const sid = action.spaceId, sp = SPACES[sid]; if (!sp || sp.type !== 'property') return;
+      const prop = game.properties[sid]; if (!prop || prop.owner !== playerIdx) return;
+      const g = GROUP_MEMBERS[sp.group]; if (!g || !g.every(id => game.properties[id] && game.properties[id].owner === playerIdx)) return;
+      if (prop.houses >= 5 || pl.money < sp.houseCost) return;
+      const minH = Math.min(...g.map(id => game.properties[id]?.houses || 0)); if (prop.houses > minH) return;
+      pl.money -= sp.houseCost; prop.houses++; addLog(`🏗️ ${pl.name} baut auf ${sp.name} (${prop.houses === 5 ? 'Hotel' : prop.houses + ' Häuser'}).`); break;
     }
-
     case 'payjail': {
-      if (game.currentPlayer !== playerIdx || !pl.inJail) return;
-      if (pl.money < 50) return;
-      pl.money -= 50;
-      pl.inJail = false;
-      pl.jailTurns = 0;
-      addLog(`${pl.name} zahlt 50€ → frei.`);
-      game.turnPhase = 'roll';
-      break;
+      if (game.currentPlayer !== playerIdx || !pl.inJail || pl.money < 50) return;
+      pl.money -= 50; pl.inJail = false; pl.jailTurns = 0; addLog(`${pl.name} zahlt 50€ → frei.`); game.turnPhase = 'roll'; break;
     }
-
     case 'usejailcard': {
-      if (game.currentPlayer !== playerIdx || !pl.inJail) return;
-      if (pl.jailFreeCards <= 0) return;
-      pl.jailFreeCards--;
-      pl.inJail = false;
-      pl.jailTurns = 0;
-      addLog(`🎫 ${pl.name} nutzt Gefängnis-Freikarte.`);
-      game.turnPhase = 'roll';
-      break;
+      if (game.currentPlayer !== playerIdx || !pl.inJail || pl.jailFreeCards <= 0) return;
+      pl.jailFreeCards--; pl.inJail = false; pl.jailTurns = 0; addLog(`🎫 ${pl.name} nutzt Freikarte.`); game.turnPhase = 'roll'; break;
     }
-
     case 'endturn': {
       if (game.currentPlayer !== playerIdx || game.turnPhase !== 'postroll') return;
       const isDouble = game.lastDice[0] === game.lastDice[1];
-      if (isDouble && game.doublesCount > 0 && game.doublesCount < 3 && !pl.inJail) {
-        game.turnPhase = 'roll';
-        addLog(`🎲 ${pl.name} darf nochmal würfeln (Pasch).`);
-      } else {
+      if (isDouble && game.doublesCount > 0 && game.doublesCount < 3 && !pl.inJail) { game.turnPhase = 'roll'; addLog(`🎲 ${pl.name} darf nochmal (Pasch).`); }
+      else {
         game.doublesCount = 0;
-        do {
-          game.currentPlayer = (game.currentPlayer + 1) % game.players.length;
-        } while (game.players[game.currentPlayer].bankrupt && game.players.filter(p => !p.bankrupt).length > 1);
-        game.turnPhase = 'roll';
-        addLog(`── ${game.players[game.currentPlayer].name} ist am Zug ──`);
-      }
-      break;
+        do { game.currentPlayer = (game.currentPlayer + 1) % game.players.length; } while (game.players[game.currentPlayer].bankrupt && game.players.filter(p => !p.bankrupt).length > 1);
+        game.turnPhase = 'roll'; addLog(`── ${game.players[game.currentPlayer].name} ist am Zug ──`);
+      } break;
     }
-
-    // ── TRADE ──
     case 'trade_offer': {
       const { to, offerMoney, requestMoney, offerProps, requestProps } = action;
-      if (to < 0 || to >= game.players.length || to === playerIdx) return;
-      if (game.players[to].bankrupt) return;
-      if (offerMoney > pl.money) return;
-      if (requestMoney > game.players[to].money) return;
-      game.pendingOffer = {
-        from: playerIdx, to, offerMoney, requestMoney,
-        offerProps: offerProps || [], requestProps: requestProps || [],
-        round: (game.pendingOffer?.round || 0) + 1,
-      };
-      addLog(`📨 ${pl.name} sendet Angebot an ${game.players[to].name}.`);
-      break;
+      if (to < 0 || to >= game.players.length || to === playerIdx || game.players[to].bankrupt) return;
+      if (offerMoney > pl.money || requestMoney > game.players[to].money) return;
+      game.pendingOffer = { from: playerIdx, to, offerMoney, requestMoney, offerProps: offerProps || [], requestProps: requestProps || [], round: (game.pendingOffer?.round || 0) + 1 };
+      addLog(`📨 ${pl.name} sendet Angebot an ${game.players[to].name}.`); break;
     }
-
     case 'trade_accept': {
-      const o = game.pendingOffer;
-      if (!o || o.to !== playerIdx) return;
-      const sender = game.players[o.from];
-      const receiver = game.players[o.to];
+      const o = game.pendingOffer; if (!o || o.to !== playerIdx) return;
+      const sender = game.players[o.from], receiver = game.players[o.to];
       if (o.offerMoney > 0) { sender.money -= o.offerMoney; receiver.money += o.offerMoney; }
       if (o.requestMoney > 0) { receiver.money -= o.requestMoney; sender.money += o.requestMoney; }
       o.offerProps.forEach(sid => { if (game.properties[sid]) game.properties[sid].owner = o.to; });
       o.requestProps.forEach(sid => { if (game.properties[sid]) game.properties[sid].owner = o.from; });
-      addLog(`🤝 Handel abgeschlossen: ${sender.name} ⇄ ${receiver.name}`);
-      game.pendingOffer = null;
-      break;
+      addLog(`🤝 Handel: ${sender.name} ⇄ ${receiver.name}`); game.pendingOffer = null; break;
     }
-
     case 'trade_reject': {
-      const o = game.pendingOffer;
-      if (!o || o.to !== playerIdx) return;
-      addLog(`❌ ${pl.name} lehnt Angebot ab.`);
-      game.pendingOffer = null;
-      break;
+      const o = game.pendingOffer; if (!o || o.to !== playerIdx) return;
+      addLog(`❌ ${pl.name} lehnt ab.`); game.pendingOffer = null; break;
     }
-
     case 'trade_counter': {
-      const o = game.pendingOffer;
-      if (!o || o.to !== playerIdx) return;
-      // Flip: receiver becomes sender of counter-offer
+      const o = game.pendingOffer; if (!o || o.to !== playerIdx) return;
       const { offerMoney, requestMoney, offerProps, requestProps } = action;
-      if (offerMoney > pl.money) return;
-      if (requestMoney > game.players[o.from].money) return;
-      game.pendingOffer = {
-        from: playerIdx, to: o.from,
-        offerMoney, requestMoney,
-        offerProps: offerProps || [], requestProps: requestProps || [],
-        round: o.round + 1,
-      };
-      addLog(`✏️ ${pl.name} sendet Gegenangebot an ${game.players[o.from].name}.`);
-      break;
+      if (offerMoney > pl.money || requestMoney > game.players[o.from].money) return;
+      game.pendingOffer = { from: playerIdx, to: o.from, offerMoney, requestMoney, offerProps: offerProps || [], requestProps: requestProps || [], round: o.round + 1 };
+      addLog(`✏️ ${pl.name} sendet Gegenangebot.`); break;
     }
-
     case 'trade_cancel': {
       if (game.pendingOffer && (game.pendingOffer.from === playerIdx || game.pendingOffer.to === playerIdx)) {
-        addLog(`❌ ${pl.name} bricht Handel ab.`);
-        game.pendingOffer = null;
-      }
-      break;
+        addLog(`❌ ${pl.name} bricht Handel ab.`); game.pendingOffer = null;
+      } break;
     }
   }
-
   broadcastState();
 }
 
-// ── CONNECTION HANDLING ──
-server.on('upgrade', (req, socket, head) => {
-  if (req.headers.upgrade?.toLowerCase() !== 'websocket') {
-    socket.destroy();
-    return;
-  }
-
-  acceptWebSocket(req, socket);
+// ── WEBSOCKET CONNECTION HANDLING ──
+wss.on('connection', (ws) => {
   const clientId = crypto.randomUUID();
-  clients.set(socket, { id: clientId, playerIdx: -1 });
-
+  clients.set(ws, { id: clientId, playerIdx: -1 });
   console.log(`[+] Client connected (${clientId}). Total: ${clients.size}`);
 
-  let buffer = Buffer.alloc(0);
+  sendTo(ws, { type: 'welcome', id: clientId, spaces: SPACES, groupMembers: GROUP_MEMBERS });
+  sendTo(ws, { type: 'state', state: getState(-1) });
 
-  socket.on('data', (data) => {
-    buffer = Buffer.concat([buffer, data]);
+  ws.on('message', (raw) => {
+    try {
+      const msg = JSON.parse(raw.toString());
+      const info = clients.get(ws);
+      if (!info) return;
 
-    while (buffer.length >= 2) {
-      const payloadLen = buffer[1] & 0x7f;
-      let frameLen;
-      let headerLen = 2;
-      if (payloadLen < 126) {
-        frameLen = payloadLen;
-      } else if (payloadLen === 126) {
-        if (buffer.length < 4) return;
-        frameLen = buffer.readUInt16BE(2);
-        headerLen = 4;
-      } else {
-        if (buffer.length < 10) return;
-        frameLen = Number(buffer.readBigUInt64BE(2));
-        headerLen = 10;
+      switch (msg.type) {
+        case 'join': {
+          if (game.phase !== 'lobby') { sendTo(ws, { type: 'error', text: 'Spiel läuft bereits.' }); return; }
+          if (game.players.length >= 4) { sendTo(ws, { type: 'error', text: 'Spiel ist voll (max 4).' }); return; }
+          const name = (msg.name || 'Spieler').substring(0, 16);
+          const idx = game.players.length;
+          const token = crypto.randomUUID();
+          game.players.push({ name, color: PLAYER_COLORS[idx], money: 1500, pos: 0, bankrupt: false, inJail: false, jailTurns: 0, jailFreeCards: 0, connected: true });
+          info.playerIdx = idx;
+          playerTokens.set(token, idx);
+          addLog(`👋 ${name} ist beigetreten! (${game.players.length}/4)`);
+          sendTo(ws, { type: 'joined', playerIdx: idx, token });
+          broadcastState();
+          break;
+        }
+        case 'rejoin': {
+          const token = msg.token;
+          if (!token || !playerTokens.has(token)) { sendTo(ws, { type: 'error', text: 'Ungültiger Token.' }); sendTo(ws, { type: 'state', state: getState(-1) }); return; }
+          const idx = playerTokens.get(token);
+          if (idx >= 0 && game.players[idx]) {
+            info.playerIdx = idx; game.players[idx].connected = true;
+            addLog(`🔄 ${game.players[idx].name} ist wieder da!`);
+            sendTo(ws, { type: 'rejoined', playerIdx: idx }); broadcastState();
+          } break;
+        }
+        case 'start': {
+          if (game.phase !== 'lobby' || game.players.length < 2) { sendTo(ws, { type: 'error', text: 'Mind. 2 Spieler nötig.' }); return; }
+          game.phase = 'playing'; game.currentPlayer = 0; game.turnPhase = 'roll';
+          addLog(`🎮 Spiel gestartet! ${game.players[0].name} beginnt.`);
+          broadcastState(); break;
+        }
+        case 'action': {
+          if (info.playerIdx < 0) return;
+          handleAction(info.playerIdx, msg.action); break;
+        }
+        case 'reset': {
+          createGame(); playerTokens.clear();
+          for (const [, ci] of clients) ci.playerIdx = -1;
+          addLog('🔄 Neues Spiel.'); broadcastState(); break;
+        }
       }
-      const masked = (buffer[1] & 0x80) !== 0;
-      const totalLen = headerLen + (masked ? 4 : 0) + frameLen;
-
-      if (buffer.length < totalLen) return;
-
-      const frame = buffer.slice(0, totalLen);
-      buffer = buffer.slice(totalLen);
-
-      const decoded = decodeFrame(frame);
-      if (!decoded) continue;
-
-      if (decoded.opcode === 'close') {
-        socket.end();
-        return;
-      }
-      if (decoded.opcode === 'ping') {
-        // Send pong
-        const pong = Buffer.alloc(2);
-        pong[0] = 0x8a; pong[1] = 0x00;
-        socket.write(pong);
-        continue;
-      }
-
-      if (decoded.data) {
-        handleMessage(socket, decoded.data);
-      }
-    }
+    } catch (e) { console.error('Message error:', e.message); }
   });
 
-  socket.on('close', () => {
-    const info = clients.get(socket);
+  ws.on('close', () => {
+    const info = clients.get(ws);
     if (info && info.playerIdx >= 0 && game.players[info.playerIdx]) {
       game.players[info.playerIdx].connected = false;
-      addLog(`⚡ ${game.players[info.playerIdx].name} hat die Verbindung verloren.`);
+      addLog(`⚡ ${game.players[info.playerIdx].name} getrennt.`);
     }
-    clients.delete(socket);
+    clients.delete(ws);
     console.log(`[-] Client disconnected. Total: ${clients.size}`);
     broadcastState();
   });
 
-  socket.on('error', () => {
-    clients.delete(socket);
-  });
-
-  // Send initial lobby state
-  sendTo(socket, { type: 'welcome', id: clientId, spaces: SPACES, groupMembers: GROUP_MEMBERS });
-  sendTo(socket, { type: 'state', state: getState(-1) });
+  ws.on('error', () => { clients.delete(ws); });
 });
 
-function handleMessage(ws, msg) {
-  const info = clients.get(ws);
-  if (!info) return;
-
-  switch (msg.type) {
-    case 'join': {
-      if (game.phase !== 'lobby') {
-        sendTo(ws, { type: 'error', text: 'Spiel läuft bereits.' });
-        return;
-      }
-      if (game.players.length >= 4) {
-        sendTo(ws, { type: 'error', text: 'Spiel ist voll (max 4).' });
-        return;
-      }
-      const name = (msg.name || 'Spieler').substring(0, 16);
-      const idx = game.players.length;
-      const token = crypto.randomUUID();
-      game.players.push({
-        name, color: PLAYER_COLORS[idx],
-        money: 1500, pos: 0, bankrupt: false,
-        inJail: false, jailTurns: 0, jailFreeCards: 0,
-        connected: true,
-      });
-      info.playerIdx = idx;
-      playerTokens.set(token, idx);
-      addLog(`👋 ${name} ist beigetreten! (${game.players.length}/4)`);
-      sendTo(ws, { type: 'joined', playerIdx: idx, token });
-      broadcastState();
-      break;
-    }
-
-    case 'rejoin': {
-      const token = msg.token;
-      if (!token || !playerTokens.has(token)) {
-        sendTo(ws, { type: 'error', text: 'Ungültiger Token. Bitte neu beitreten.' });
-        sendTo(ws, { type: 'state', state: getState(-1) });
-        return;
-      }
-      const idx = playerTokens.get(token);
-      if (idx >= 0 && game.players[idx]) {
-        info.playerIdx = idx;
-        game.players[idx].connected = true;
-        addLog(`🔄 ${game.players[idx].name} ist wieder verbunden!`);
-        sendTo(ws, { type: 'rejoined', playerIdx: idx });
-        broadcastState();
-      }
-      break;
-    }
-
-    case 'start': {
-      if (game.phase !== 'lobby') return;
-      if (game.players.length < 2) {
-        sendTo(ws, { type: 'error', text: 'Mindestens 2 Spieler benötigt.' });
-        return;
-      }
-      game.phase = 'playing';
-      game.currentPlayer = 0;
-      game.turnPhase = 'roll';
-      addLog(`🎮 Spiel gestartet! ${game.players[0].name} beginnt.`);
-      broadcastState();
-      break;
-    }
-
-    case 'action': {
-      if (info.playerIdx < 0) return;
-      handleAction(info.playerIdx, msg.action);
-      break;
-    }
-
-    case 'reset': {
-      createGame();
-      playerTokens.clear();
-      for (const [, ci] of clients) ci.playerIdx = -1;
-      addLog('🔄 Neues Spiel erstellt.');
-      broadcastState();
-      break;
-    }
-  }
-}
-
 server.listen(PORT, '0.0.0.0', () => {
-  console.log('');
-  console.log('╔═══════════════════════════════════════════╗');
-  console.log('║     🎲 MONOPOLY ONLINE SERVER 🎲         ║');
-  console.log('╠═══════════════════════════════════════════╣');
-  console.log(`║  Lokal:    http://localhost:${PORT}          ║`);
-  console.log('║                                           ║');
-  console.log('║  Andere Spieler im gleichen Netzwerk:     ║');
-  console.log(`║  http://<DEINE-IP>:${PORT}                  ║`);
-  console.log('║                                           ║');
-  console.log('║  Spieler: 2-4 | Lobby wartet...           ║');
-  console.log('╚═══════════════════════════════════════════╝');
-  console.log('');
+  console.log(`\n🎲 MONOPOLY ONLINE läuft auf Port ${PORT}\n`);
 });
