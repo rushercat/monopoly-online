@@ -71,7 +71,18 @@ body{background:#1a1a2e;color:#eee;font-family:'Roboto Condensed',sans-serif;min
 .prop-chip .pbar .mht{width:calc(8px*var(--sf));height:calc(7px*var(--sf));background:#e53935;border:.5px solid #b71c1c;border-radius:1px;flex-shrink:0}
 .prop-chip .pcn{font-size:calc(7px*var(--sf));color:#ccc;padding:calc(2px*var(--sf));line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .no-props{font-size:calc(10px*var(--sf));color:#667;font-style:italic}
-#log{max-height:calc(140px*var(--sf));overflow-y:auto;font-size:calc(11px*var(--sf));color:#ccc;line-height:1.5;scrollbar-width:thin}
+#log{max-height:calc(140px*var(--sf));overflow-y:auto;font-size:calc(11px*var(--sf));color:#ccc;line-height:1.5;scrollbar-width:thin;display:flex;flex-direction:column-reverse}
+.log-e{padding:1px calc(4px*var(--sf));border-radius:3px;margin-bottom:1px}
+.prop-chip.mort{opacity:.5;position:relative}.prop-chip.mort::after{content:'H';position:absolute;top:0;right:2px;font-size:calc(7px*var(--sf));color:#e74c3c;font-weight:700}
+.prop-chip.mort .pbar{background:#555!important}
+#mort-modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:100;align-items:center;justify-content:center}
+#mort-modal.show{display:flex}
+#mort-content{background:#16213e;border:2px solid #e67e22;border-radius:10px;padding:20px;max-width:450px;width:90%;max-height:80vh;overflow-y:auto}
+#mort-content h3{font-family:'Oswald',sans-serif;color:#e67e22;margin-bottom:10px}
+.mort-item{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #333;font-size:12px}
+.mort-item button{padding:3px 10px;border:none;border-radius:4px;cursor:pointer;font-size:11px;color:#fff}
+.mort-item button.m-on{background:#e67e22}.mort-item button.m-off{background:#27ae60}
+.mort-item button:disabled{background:#555}
 #actions{display:flex;flex-wrap:wrap;gap:calc(6px*var(--sf))}
 #actions button{padding:calc(6px*var(--sf)) calc(14px*var(--sf));border-radius:5px;border:none;font-family:'Roboto Condensed',sans-serif;font-size:calc(12px*var(--sf));cursor:pointer;background:#1a5276;color:#fff}
 #actions button.buy{background:#27ae60}#actions button.build{background:#8e44ad}#actions button.trade{background:#e67e22}#actions button.end{background:#c0392b}#actions button.jail{background:#d4a017;color:#111}
@@ -136,11 +147,14 @@ body{background:#1a1a2e;color:#eee;font-family:'Roboto Condensed',sans-serif;min
   </div>
 </div>
 <div id="build-modal"><div id="build-content"><h3>🏠 Häuser / Hotels</h3><div id="build-list"></div><br><button onclick="closeBuild()" style="padding:6px 16px;border:none;border-radius:5px;background:#c0392b;color:#fff;cursor:pointer">Schließen</button></div></div>
+<div id="mort-modal"><div id="mort-content"><h3>🏦 Hypotheken</h3><div id="mort-list"></div><br><button onclick="closeMort()" style="padding:6px 16px;border:none;border-radius:5px;background:#c0392b;color:#fff;cursor:pointer">Schließen</button></div></div>
 
 <script>
 const COLORS={brown:'#795548',lblue:'#81d4fa',pink:'#f48fb1',orange:'#ff9800',red:'#f44336',yellow:'#ffeb3b',green:'#4caf50',dblue:'#1565c0'};
 const PC=['#e53935','#1e88e5','#43a047','#fdd835'];
-let ws,myIdx=-1,SPACES=[],GM={},S=null,toP=new Set(),trP=new Set(),composing=false;
+let ws,myIdx=-1,SPACES=[],GM={},S=null,toP=new Set(),trP=new Set(),composing=false,GOR=[];
+function sortProps(ids){return ids.sort((a,b)=>{const sa=SPACES[a],sb=SPACES[b];const ga=gsk(sa),gb=gsk(sb);return ga!==gb?ga-gb:a-b;});}
+function gsk(sp){if(sp.type==='railroad')return 8;if(sp.type==='utility')return 9;const go=['brown','lblue','pink','orange','red','yellow','green','dblue'];return sp.group?go.indexOf(sp.group):99;}
 let myToken=sessionStorage.getItem('mtoken')||'';
 let reconnecting=false;
 
@@ -286,7 +300,7 @@ function renderBoard(){
   S.players.forEach((pl,i)=>{if(pl.bankrupt)return;const tc=document.getElementById('tokens-'+pl.pos);const t=document.createElement('div');t.className='tok';t.style.background=pl.color;t.textContent=i+1;tc.appendChild(t);});
   for(const[sid,prop]of Object.entries(S.properties)){
     const cl=document.getElementById('cell-'+sid);const sp=SPACES[sid];if(!cl)continue;
-    const d=document.createElement('div');d.className='owner-dot';d.style.background=S.players[prop.owner].color;cl.appendChild(d);
+    const d=document.createElement('div');d.className='owner-dot';d.style.background=S.players[prop.owner].color;if(prop.mortgaged)d.style.opacity='0.3';cl.appendChild(d);
     if(prop.houses>0&&sp.type==='property'){const hr=document.createElement('div');hr.className='houses-row';if(prop.houses===5){const h=document.createElement('div');h.className='hotel-icon';hr.appendChild(h);}else{for(let i=0;i<prop.houses;i++){const h=document.createElement('div');h.className='house-icon';hr.appendChild(h);}}cl.appendChild(hr);}
   }
   const pe=document.getElementById('pot-display');if(pe)pe.textContent='🅿️ Frei Parken: '+S.freeParkingPot+'€';
@@ -306,8 +320,8 @@ function renderPlayers(){
     inf.appendChild(nm);inf.appendChild(mn);
     if(i===myIdx){const tg=document.createElement('div');tg.className='ptag';tg.textContent='(Du)';inf.appendChild(tg);}
     hd.appendChild(dt);hd.appendChild(inf);cd.appendChild(hd);
-    const oi=Object.entries(S.properties).filter(([,p])=>p.owner===i).map(([s])=>parseInt(s));
-    if(oi.length>0){const g=document.createElement('div');g.className='prop-grid';oi.forEach(sid=>{const sp=SPACES[sid];const pr=S.properties[sid];const ch=document.createElement('div');ch.className='prop-chip';const br=document.createElement('div');br.className='pbar';br.style.background=sp.group?(COLORS[sp.group]||'#555'):(sp.type==='railroad'?'#555':'#9e9e9e');if(sp.type==='property'&&pr.houses>0){if(pr.houses===5){const h=document.createElement('div');h.className='mht';br.appendChild(h);}else{for(let hi=0;hi<pr.houses;hi++){const h=document.createElement('div');h.className='mh';br.appendChild(h);}}}ch.appendChild(br);const n=document.createElement('div');n.className='pcn';n.textContent=sp.name;ch.appendChild(n);g.appendChild(ch);});cd.appendChild(g);}
+    const oi=sortProps(Object.entries(S.properties).filter(([,p])=>p.owner===i).map(([s])=>parseInt(s)));
+    if(oi.length>0){const g=document.createElement('div');g.className='prop-grid';oi.forEach(sid=>{const sp=SPACES[sid];const pr=S.properties[sid];const ch=document.createElement('div');ch.className='prop-chip'+(pr.mortgaged?' mort':'');const br=document.createElement('div');br.className='pbar';br.style.background=sp.group?(COLORS[sp.group]||'#555'):(sp.type==='railroad'?'#555':'#9e9e9e');if(sp.type==='property'&&pr.houses>0){if(pr.houses===5){const h=document.createElement('div');h.className='mht';br.appendChild(h);}else{for(let hi=0;hi<pr.houses;hi++){const h=document.createElement('div');h.className='mh';br.appendChild(h);}}}ch.appendChild(br);const n=document.createElement('div');n.className='pcn';n.textContent=sp.name+(pr.mortgaged?' 🏦':'');ch.appendChild(n);g.appendChild(ch);});cd.appendChild(g);}
     else{const np=document.createElement('div');np.className='no-props';np.textContent='Keine Grundstücke';cd.appendChild(np);}
     a.appendChild(cd);
   });
@@ -330,6 +344,7 @@ function renderActions(){
     const sp=SPACES[pl.pos];
     if(['property','railroad','utility'].includes(sp.type)&&!S.properties[pl.pos]&&pl.money>=sp.price)aBtn(sp.name+' kaufen ('+sp.price+'€)','buy',()=>doAction({type:'buy'}));
     if(canBuild())aBtn('🏠 Bauen','build',()=>openBuild());
+    if(hasMortgageActions())aBtn('🏦 Hypotheken','trade',()=>openMort());
     aBtn('🤝 Handeln','trade',()=>openCompose());
     aBtn('Zug beenden','end',()=>doAction({type:'endturn'}));
   }
@@ -338,17 +353,57 @@ function renderActions(){
 }
 function aBtn(t,c,f){const b=document.createElement('button');b.textContent=t;if(c)b.className=c;b.onclick=f;document.getElementById('actions').appendChild(b);}
 
-function renderLog(){if(!S)return;const e=document.getElementById('log');e.innerHTML=S.log.map(l=>'<div>'+l+'</div>').join('');e.scrollTop=e.scrollHeight;}
+function renderLog(){if(!S)return;const e=document.getElementById('log');e.innerHTML=S.log.slice().reverse().map(l=>{const t=typeof l==='object'?l.text:l;const c=typeof l==='object'?l.color:'#888';return `<div class="log-e" style="background:${c}18;border-left:2px solid ${c}">${t}</div>`;}).join('');}
 function renderAll(){renderBoard();renderPlayers();renderDice();renderActions();renderLog();if(!composing)renderTrade();}
 
 // Build
 function canBuild(){
   if(!S||myIdx<0)return false;
-  return SPACES.some((sp,idx)=>{if(sp.type!=='property'||!sp.group)return false;const pr=S.properties[idx];if(!pr||pr.owner!==myIdx)return false;const g=GM[sp.group];if(!g||!g.every(id=>S.properties[id]&&S.properties[id].owner===myIdx))return false;if(pr.houses>=5||S.players[myIdx].money<sp.houseCost)return false;const mn=Math.min(...g.map(id=>S.properties[id]?.houses||0));return pr.houses<=mn;});
+  return SPACES.some((sp,idx)=>{if(sp.type!=='property'||!sp.group)return false;const pr=S.properties[idx];if(!pr||pr.owner!==myIdx||pr.mortgaged)return false;const g=GM[sp.group];if(!g||!g.every(id=>S.properties[id]&&S.properties[id].owner===myIdx&&!S.properties[id].mortgaged))return false;if(pr.houses>=5||S.players[myIdx].money<sp.houseCost)return false;const mn=Math.min(...g.map(id=>S.properties[id]?.houses||0));return pr.houses<=mn;});
 }
+
+function hasMortgageActions(){
+  if(!S||myIdx<0)return false;
+  return Object.entries(S.properties).some(([sid,p])=>{
+    if(p.owner!==myIdx)return false;
+    if(p.mortgaged)return true; // can unmortgage
+    if(p.houses>0)return false;
+    const sp=SPACES[parseInt(sid)];
+    if(sp.group&&GM[sp.group]&&GM[sp.group].some(gid=>{const gp=S.properties[gid];return gp&&gp.owner===myIdx&&gp.houses>0;}))return false;
+    return true; // can mortgage
+  });
+}
+
+function openMort(){
+  const l=document.getElementById('mort-list');l.innerHTML='';
+  const myProps=sortProps(Object.entries(S.properties).filter(([,p])=>p.owner===myIdx).map(([s])=>parseInt(s)));
+  myProps.forEach(sid=>{
+    const sp=SPACES[sid],pr=S.properties[sid];
+    const it=document.createElement('div');it.className='mort-item';
+    const mortVal=Math.floor(sp.price/2);
+    const unmortCost=Math.floor(mortVal*1.1);
+    if(pr.mortgaged){
+      it.innerHTML=`<span style="color:${pC(sid)}">■</span> ${sp.name} <span style="color:#e74c3c">🏦 Hypothek</span>`;
+      const bt=document.createElement('button');bt.className='m-off';bt.textContent=`Auslösen (${unmortCost}€)`;
+      bt.disabled=S.players[myIdx].money<unmortCost;
+      bt.onclick=()=>{doAction({type:'unmortgage',spaceId:sid});setTimeout(()=>openMort(),300);};
+      it.appendChild(bt);
+    }else{
+      const canMort=pr.houses===0&&!(sp.group&&GM[sp.group]&&GM[sp.group].some(gid=>{const gp=S.properties[gid];return gp&&gp.owner===myIdx&&gp.houses>0;}));
+      it.innerHTML=`<span style="color:${pC(sid)}">■</span> ${sp.name}`;
+      const bt=document.createElement('button');bt.className='m-on';bt.textContent=`Hypothek (+${mortVal}€)`;
+      bt.disabled=!canMort;
+      bt.onclick=()=>{doAction({type:'mortgage',spaceId:sid});setTimeout(()=>openMort(),300);};
+      it.appendChild(bt);
+    }
+    l.appendChild(it);
+  });
+  document.getElementById('mort-modal').classList.add('show');
+}
+function closeMort(){document.getElementById('mort-modal').classList.remove('show');}
 function openBuild(){
   const l=document.getElementById('build-list');l.innerHTML='';
-  SPACES.forEach((sp,idx)=>{if(sp.type!=='property')return;const pr=S.properties[idx];if(!pr||pr.owner!==myIdx)return;const g=GM[sp.group];if(!g||!g.every(id=>S.properties[id]&&S.properties[id].owner===myIdx))return;const ok=pr.houses<5&&S.players[myIdx].money>=sp.houseCost;const mn=Math.min(...g.map(id=>S.properties[id]?.houses||0));const ev=pr.houses<=mn;
+  SPACES.forEach((sp,idx)=>{if(sp.type!=='property')return;const pr=S.properties[idx];if(!pr||pr.owner!==myIdx||pr.mortgaged)return;const g=GM[sp.group];if(!g||!g.every(id=>S.properties[id]&&S.properties[id].owner===myIdx&&!S.properties[id].mortgaged))return;const ok=pr.houses<5&&S.players[myIdx].money>=sp.houseCost;const mn=Math.min(...g.map(id=>S.properties[id]?.houses||0));const ev=pr.houses<=mn;
   const it=document.createElement('div');it.className='build-item';it.innerHTML=`<span style="color:${COLORS[sp.group]}">■</span> ${sp.name} (${pr.houses}H) ${sp.houseCost}€`;
   const bt=document.createElement('button');bt.textContent=pr.houses===4?'Hotel':'Haus';bt.disabled=!ok||!ev;bt.onclick=()=>{doAction({type:'build',spaceId:idx});setTimeout(()=>{if(canBuild())openBuild();else closeBuild();},300);};it.appendChild(bt);l.appendChild(it);});
   document.getElementById('build-modal').classList.add('show');
@@ -358,7 +413,7 @@ function closeBuild(){document.getElementById('build-modal').classList.remove('s
 // Trade
 function pN(sid){const sp=SPACES[sid];let n=sp.name;if(sp.type==='railroad')n='🚂 '+n;if(sp.type==='utility')n='⚡ '+n;return n;}
 function pC(sid){const sp=SPACES[sid];return sp.group?(COLORS[sp.group]||'#555'):(sp.type==='railroad'?'#555':'#9e9e9e');}
-function gTP(pid){return Object.entries(S.properties).filter(([sid,pr])=>{if(pr.owner!==pid)return false;const sp=SPACES[parseInt(sid)];if(sp.group&&GM[sp.group]&&GM[sp.group].some(gid=>{const gp=S.properties[gid];return gp&&gp.owner===pid&&gp.houses>0;}))return false;return true;}).map(([s])=>parseInt(s));}
+function gTP(pid){return sortProps(Object.entries(S.properties).filter(([sid,pr])=>{if(pr.owner!==pid)return false;const sp=SPACES[parseInt(sid)];if(sp.group&&GM[sp.group]&&GM[sp.group].some(gid=>{const gp=S.properties[gid];return gp&&gp.owner===pid&&gp.houses>0;}))return false;return true;}).map(([s])=>parseInt(s)));}
 
 function renderTrade(){
   const a=document.getElementById('trade-area');if(!S||myIdx<0){a.innerHTML='';return;}
@@ -419,7 +474,7 @@ function rCB(cid,pids,sel){
     const cb=document.createElement('input');cb.type='checkbox';cb.checked=sel.has(sid);
     cb.onchange=()=>{if(cb.checked)sel.add(sid);else sel.delete(sid);uTU();};
     const d=document.createElement('div');d.className='tc2';d.style.background=pC(sid);
-    const n=document.createElement('span');n.className='tn';n.textContent=pN(sid);
+    const n=document.createElement('span');n.className='tn';const pr=S.properties[sid];n.textContent=pN(sid)+(pr&&pr.mortgaged?' 🏦':'');
     it.appendChild(cb);it.appendChild(d);it.appendChild(n);a.appendChild(it);
   });
 }
