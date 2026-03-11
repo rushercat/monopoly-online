@@ -142,6 +142,8 @@ function createGame() {
     chanceDeck: shuffle([...CHANCE_CARDS]),
     communityDeck: shuffle([...COMMUNITY_CARDS]),
     pendingOffer: null,
+    initRolls: {},   // playerIdx -> { d1, d2, total }
+    turnOrder: [],    // sorted player indices after init roll
   };
 }
 createGame();
@@ -160,6 +162,7 @@ function getState(forPlayerIdx) {
     doublesCount: game.doublesCount, lastDice: game.lastDice,
     properties: game.properties, freeParkingPot: game.freeParkingPot,
     log: game.log, you: forPlayerIdx, pendingOffer: game.pendingOffer,
+    initRolls: game.initRolls, turnOrder: game.turnOrder,
   };
 }
 
@@ -380,12 +383,68 @@ wss.on('connection', (ws) => {
         }
         case 'start': {
           if (game.phase !== 'lobby' || game.players.length < 2) { sendTo(ws, { type: 'error', text: 'Mind. 2 Spieler nötig.' }); return; }
-          game.phase = 'playing'; game.currentPlayer = 0; game.turnPhase = 'roll';
-          addLog(`🎮 Spiel gestartet! ${game.players[0].name} beginnt.`);
+          game.phase = 'rolling_order'; game.initRolls = {}; game.turnOrder = [];
+          addLog(`🎲 Alle Spieler würfeln um die Reihenfolge!`);
           broadcastState(); break;
         }
         case 'action': {
           if (info.playerIdx < 0) return;
+          // Init roll during rolling_order phase
+          if (msg.action.type === 'init_roll' && game.phase === 'rolling_order') {
+            const pi = info.playerIdx;
+            if (game.initRolls[pi]) return; // already rolled
+            const d1 = Math.floor(Math.random() * 6) + 1;
+            const d2 = Math.floor(Math.random() * 6) + 1;
+            game.initRolls[pi] = { d1, d2, total: d1 + d2 };
+            addLog(`🎲 ${game.players[pi].name} würfelt ${d1}+${d2} = ${d1 + d2}`);
+            // Check if all players have rolled
+            const allRolled = game.players.every((_, i) => game.initRolls[i]);
+            if (allRolled) {
+              // Sort by total descending, then determine turn order
+              const sorted = game.players.map((_, i) => i).sort((a, b) => game.initRolls[b].total - game.initRolls[a].total);
+              game.turnOrder = sorted;
+              // Reorder players array and fix property owners
+              const newPlayers = sorted.map(i => game.players[i]);
+              // Create mapping old index -> new index
+              const indexMap = {};
+              sorted.forEach((oldIdx, newIdx) => { indexMap[oldIdx] = newIdx; });
+              // Fix property owners
+              Object.values(game.properties).forEach(p => { if (indexMap[p.owner] !== undefined) p.owner = indexMap[p.owner]; });
+              // Fix player tokens mapping
+              const newTokenMap = new Map();
+              for (const [token, oldIdx] of playerTokens) {
+                if (indexMap[oldIdx] !== undefined) newTokenMap.set(token, indexMap[oldIdx]);
+              }
+              playerTokens.clear();
+              for (const [token, newIdx] of newTokenMap) playerTokens.set(token, newIdx);
+              // Fix client playerIdx
+              for (const [, ci] of clients) {
+                if (ci.playerIdx >= 0 && indexMap[ci.playerIdx] !== undefined) ci.playerIdx = indexMap[ci.playerIdx];
+              }
+              // Reassign colors
+              newPlayers.forEach((p, i) => { p.color = PLAYER_COLORS[i]; });
+              game.players = newPlayers;
+              game.currentPlayer = 0;
+              game.turnPhase = 'roll';
+              game.phase = 'playing';
+              // Log order
+              const orderStr = game.players.map((p, i) => `${i + 1}. ${p.name} (${game.initRolls[sorted[i]].total})`).join(', ');
+              addLog(`📊 Reihenfolge: ${orderStr}`);
+              addLog(`🎮 Spiel gestartet! ${game.players[0].name} beginnt.`);
+            }
+            broadcastState();
+            return;
+          }
+          // Abort game
+          if (msg.action.type === 'abort') {
+            const pName = (info.playerIdx >= 0 && game.players[info.playerIdx]) ? game.players[info.playerIdx].name : 'Jemand';
+            createGame(); playerTokens.clear();
+            for (const [, ci] of clients) ci.playerIdx = -1;
+            addLog(`🛑 ${pName} hat das Spiel abgebrochen. Zurück zur Lobby.`);
+            broadcastState();
+            return;
+          }
+          if (game.phase !== 'playing') return;
           handleAction(info.playerIdx, msg.action); break;
         }
         case 'reset': {
