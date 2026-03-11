@@ -79,6 +79,23 @@ body{background:#1a1a2e;color:#eee;font-family:'Roboto Condensed',sans-serif;min
 #mort-modal.show{display:flex}
 #mort-content{background:#16213e;border:2px solid #e67e22;border-radius:10px;padding:20px;max-width:450px;width:90%;max-height:80vh;overflow-y:auto}
 #mort-content h3{font-family:'Oswald',sans-serif;color:#e67e22;margin-bottom:10px}
+
+/* Auction */
+.auction-panel{background:#1a0a2e;border:2px solid #f39c12;border-radius:10px;padding:calc(12px*var(--sf));text-align:center}
+.auction-panel h3{font-family:'Oswald',sans-serif;color:#f39c12;font-size:calc(16px*var(--sf));margin-bottom:8px}
+.auction-property{font-size:calc(14px*var(--sf));font-weight:700;color:#fff;margin-bottom:6px}
+.auction-property .abar{display:inline-block;width:calc(14px*var(--sf));height:calc(14px*var(--sf));border-radius:3px;vertical-align:middle;margin-right:6px;border:1px solid #555}
+.auction-bid-display{font-size:calc(22px*var(--sf));color:#8f8;font-weight:700;font-family:'Oswald',sans-serif;margin:8px 0}
+.auction-bidder{font-size:calc(12px*var(--sf));color:#ccc;margin-bottom:8px}
+.auction-timer{font-size:calc(18px*var(--sf));color:#f39c12;font-family:'Oswald',sans-serif;margin-bottom:10px}
+.auction-timer .timer-bar{width:100%;height:6px;background:#333;border-radius:3px;margin-top:4px;overflow:hidden}
+.auction-timer .timer-fill{height:100%;background:#f39c12;border-radius:3px;transition:width .5s linear}
+.auction-btns{display:flex;gap:calc(8px*var(--sf));justify-content:center;flex-wrap:wrap}
+.auction-btns button{padding:calc(8px*var(--sf)) calc(16px*var(--sf));border:none;border-radius:6px;font-family:'Oswald',sans-serif;font-size:calc(14px*var(--sf));cursor:pointer;color:#fff;transition:background .2s}
+.auction-btns .bid10{background:#7f8c8d}.bid10:hover{background:#95a5a6}
+.auction-btns .bid50{background:#2980b9}.bid50:hover{background:#3498db}
+.auction-btns .bid100{background:#8e44ad}.bid100:hover{background:#9b59b6}
+.auction-btns button:disabled{background:#555;cursor:default}
 .mort-item{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #333;font-size:12px}
 .mort-item button{padding:3px 10px;border:none;border-radius:4px;cursor:pointer;font-size:11px;color:#fff}
 .mort-item button.m-on{background:#e67e22}.mort-item button.m-off{background:#27ae60}
@@ -333,6 +350,11 @@ function renderActions(){
   if(!S||myIdx<0)return;const a=document.getElementById('actions');a.innerHTML='';
   const pl=S.players[myIdx];if(!pl||pl.bankrupt)return;
   if(S.phase==='gameover'){aBtn('🔄 Neues Spiel','end',()=>doAction({type:'abort'}));return;}
+  if(S.auction){
+    // During auction, only show abort
+    aBtn('🛑 Spiel abbrechen','end',()=>{if(confirm('Spiel wirklich abbrechen?'))doAction({type:'abort'});});
+    return;
+  }
   const my=S.currentPlayer===myIdx;
   document.getElementById('roll-btn').disabled=!(my&&S.turnPhase==='roll'&&!pl.inJail);
   if(my&&S.turnPhase==='roll'&&pl.inJail){
@@ -340,9 +362,12 @@ function renderActions(){
     if(pl.jailFreeCards>0)aBtn('Freikarte','jail',()=>doAction({type:'usejailcard'}));
     aBtn('Würfeln (Pasch?)','',()=>doAction({type:'roll'}));
   }
-  if(my&&S.turnPhase==='postroll'){
+  if(my&&S.turnPhase==='postroll'&&!S.auction){
     const sp=SPACES[pl.pos];
-    if(['property','railroad','utility'].includes(sp.type)&&!S.properties[pl.pos]&&pl.money>=sp.price)aBtn(sp.name+' kaufen ('+sp.price+'€)','buy',()=>doAction({type:'buy'}));
+    if(['property','railroad','utility'].includes(sp.type)&&!S.properties[pl.pos]){
+      if(pl.money>=sp.price)aBtn(sp.name+' kaufen ('+sp.price+'€)','buy',()=>doAction({type:'buy'}));
+      aBtn('🔨 Versteigern','trade',()=>doAction({type:'auction_start'}));
+    }
     if(canBuild())aBtn('🏠 Bauen','build',()=>openBuild());
     if(hasMortgageActions())aBtn('🏦 Hypotheken','trade',()=>openMort());
     aBtn('🤝 Handeln','trade',()=>openCompose());
@@ -354,7 +379,7 @@ function renderActions(){
 function aBtn(t,c,f){const b=document.createElement('button');b.textContent=t;if(c)b.className=c;b.onclick=f;document.getElementById('actions').appendChild(b);}
 
 function renderLog(){if(!S)return;const e=document.getElementById('log');e.innerHTML=S.log.slice().reverse().map(l=>{const t=typeof l==='object'?l.text:l;const c=typeof l==='object'?l.color:'#888';return `<div class="log-e" style="background:${c}18;border-left:2px solid ${c}">${t}</div>`;}).join('');}
-function renderAll(){renderBoard();renderPlayers();renderDice();renderActions();renderLog();if(!composing)renderTrade();}
+function renderAll(){renderBoard();renderPlayers();renderDice();renderActions();renderLog();renderAuction();if(!composing&&!S?.auction)renderTrade();}
 
 // Build
 function canBuild(){
@@ -401,6 +426,50 @@ function openMort(){
   document.getElementById('mort-modal').classList.add('show');
 }
 function closeMort(){document.getElementById('mort-modal').classList.remove('show');}
+
+// Auction
+let auctionInterval=null;
+function renderAuction(){
+  const a=document.getElementById('trade-area');
+  if(!S||!S.auction){
+    if(auctionInterval){clearInterval(auctionInterval);auctionInterval=null;}
+    return;
+  }
+  const au=S.auction, sp=SPACES[au.spaceId], pl=S.players[myIdx];
+  const col=sp.group?(COLORS[sp.group]||'#555'):(sp.type==='railroad'?'#555':'#9e9e9e');
+  const bidderName=au.highBidder>=0?S.players[au.highBidder].name:'Noch niemand';
+  const bidderColor=au.highBidder>=0?S.players[au.highBidder].color:'#888';
+  const canBid10=myIdx>=0&&pl&&!pl.bankrupt&&pl.money>=(au.highBid+10);
+  const canBid50=myIdx>=0&&pl&&!pl.bankrupt&&pl.money>=(au.highBid+50);
+  const canBid100=myIdx>=0&&pl&&!pl.bankrupt&&pl.money>=(au.highBid+100);
+
+  let h=`<div class="auction-panel">
+    <h3>🔨 AUKTION</h3>
+    <div class="auction-property"><span class="abar" style="background:${col}"></span>${sp.name}</div>
+    <div style="font-size:calc(10px*var(--sf));color:#888">Grundpreis: ${sp.price}€</div>
+    <div class="auction-bid-display">${au.highBid>0?au.highBid+'€':'Kein Gebot'}</div>
+    <div class="auction-bidder">Höchstbietender: <span style="color:${bidderColor};font-weight:700">${bidderName}</span></div>
+    <div class="auction-timer" id="auction-countdown">⏱ ...</div>
+    <div class="auction-btns">
+      <button class="bid10" onclick="doAction({type:'bid',amount:10})" ${canBid10?'':'disabled'}>+10€</button>
+      <button class="bid50" onclick="doAction({type:'bid',amount:50})" ${canBid50?'':'disabled'}>+50€</button>
+      <button class="bid100" onclick="doAction({type:'bid',amount:100})" ${canBid100?'':'disabled'}>+100€</button>
+    </div>
+    ${myIdx>=0&&pl?`<div style="margin-top:8px;font-size:calc(10px*var(--sf));color:#667">Dein Geld: ${pl.money}€ | Nächstes Gebot: ${au.highBid+10}€+</div>`:''}
+  </div>`;
+  a.innerHTML=h;
+
+  // Start countdown updater
+  if(auctionInterval)clearInterval(auctionInterval);
+  auctionInterval=setInterval(()=>{
+    const cd=document.getElementById('auction-countdown');
+    if(!cd||!S||!S.auction){clearInterval(auctionInterval);auctionInterval=null;return;}
+    const left=Math.max(0,Math.ceil((S.auction.endTime-Date.now())/1000));
+    const pct=Math.max(0,Math.min(100,left/10*100));
+    cd.innerHTML=`⏱ ${left}s <div class="timer-bar"><div class="timer-fill" style="width:${pct}%"></div></div>`;
+    if(left<=0){clearInterval(auctionInterval);auctionInterval=null;}
+  },500);
+}
 function openBuild(){
   const l=document.getElementById('build-list');l.innerHTML='';
   SPACES.forEach((sp,idx)=>{if(sp.type!=='property')return;const pr=S.properties[idx];if(!pr||pr.owner!==myIdx||pr.mortgaged)return;const g=GM[sp.group];if(!g||!g.every(id=>S.properties[id]&&S.properties[id].owner===myIdx&&!S.properties[id].mortgaged))return;const ok=pr.houses<5&&S.players[myIdx].money>=sp.houseCost;const mn=Math.min(...g.map(id=>S.properties[id]?.houses||0));const ev=pr.houses<=mn;
