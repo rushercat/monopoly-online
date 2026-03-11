@@ -171,7 +171,18 @@ function connect(){
       document.getElementById('join-btn').disabled=true;
       document.getElementById('name-input').disabled=true;
     }
-    else if(m.type==='state'){S=m.state;if(S.phase==='lobby')renderLobby();else{showGame();renderAll();}}
+    else if(m.type==='state'){
+      S=m.state;
+      // Reset client if we got kicked back to lobby (abort)
+      if(S.phase==='lobby'&&S.players.length===0&&myIdx>=0){
+        myIdx=-1;myToken='';sessionStorage.removeItem('mtoken');
+        document.getElementById('join-btn').disabled=false;
+        document.getElementById('name-input').disabled=false;
+      }
+      if(S.phase==='lobby')renderLobby();
+      else if(S.phase==='rolling_order')renderRollingOrder();
+      else{showGame();renderAll();}
+    }
     else if(m.type==='error'){const el=document.getElementById('lobby-error');if(el){el.textContent=m.text;setTimeout(()=>el.textContent='',3000);}}
   };
   ws.onclose=()=>{
@@ -191,9 +202,50 @@ document.getElementById('name-input').addEventListener('keydown',e=>{if(e.key===
 
 function renderLobby(){
   if(!S)return;
+  document.getElementById('lobby').style.display='flex';
+  document.getElementById('game').style.display='none';
   const l=document.getElementById('lobby-list');
   l.innerHTML=S.players.length?S.players.map((p,i)=>`<div class="lobby-p"><span class="ldot" style="background:${PC[i]}"></span>${p.name}${i===myIdx?' (Du)':''}</div>`).join(''):'<span style="color:#556">Warte...</span>';
   const b=document.getElementById('start-btn');b.disabled=S.players.length<2||myIdx<0;b.textContent=`Spiel starten (${S.players.length}/4)`;
+  b.onclick=startGame;b.style.display='';
+}
+
+function renderRollingOrder(){
+  document.getElementById('lobby').style.display='flex';
+  document.getElementById('game').style.display='none';
+  const l=document.getElementById('lobby-list');
+  const myRoll=S.initRolls[myIdx];
+  const allRolled=S.players.every((_,i)=>S.initRolls[i]);
+
+  let html='<div style="margin-bottom:12px;font-size:14px;color:#f5c542">🎲 Würfeln um die Reihenfolge!</div>';
+  S.players.forEach((p,i)=>{
+    const roll=S.initRolls[i];
+    const isMe=i===myIdx;
+    html+=`<div class="lobby-p" style="font-size:15px;${isMe?'color:#81d4fa;font-weight:700':''}">
+      <span class="ldot" style="background:${PC[i]}"></span>
+      ${p.name}${isMe?' (Du)':''}:
+      ${roll ? '<span style="color:#8f8;font-weight:700"> '+roll.d1+' + '+roll.d2+' = '+roll.total+'</span>' : '<span style="color:#667">⏳ wartet...</span>'}
+    </div>`;
+  });
+
+  if(allRolled&&S.turnOrder&&S.turnOrder.length){
+    html+='<div style="margin-top:12px;padding:10px;background:#0a1e3d;border-radius:8px;font-size:13px"><b style="color:#f5c542">📊 Reihenfolge:</b><br>';
+    S.turnOrder.forEach((oldIdx,pos)=>{
+      const r=S.initRolls[oldIdx];
+      html+=`<div style="padding:2px 0">${pos+1}. ${S.players[oldIdx]?.name||'?'} (${r?.total||'?'})</div>`;
+    });
+    html+='<div style="margin-top:8px;color:#8f8">Spiel startet...</div></div>';
+  }
+
+  l.innerHTML=html;
+
+  const b=document.getElementById('start-btn');
+  if(!myRoll&&myIdx>=0){
+    b.textContent='🎲 Würfeln!';b.disabled=false;b.style.display='';
+    b.onclick=()=>doAction({type:'init_roll'});
+  }else{
+    b.textContent='⏳ Warte auf andere...';b.disabled=true;b.style.display='';
+  }
 }
 function showGame(){document.getElementById('lobby').style.display='none';document.getElementById('game').style.display='block';if(!document.getElementById('board').children.length)buildBoard();recalcScale();}
 function recalcScale(){const r=document.documentElement,vh=window.innerHeight,vw=window.innerWidth;let s=(vh*.95)/702;const n=702*s+340+300+60;if(n>vw*.98){const a=vw*.98-340-300-60;if(a>300)s=Math.min(s,a/702);}s=Math.max(.5,Math.min(s,1.8));const sf=Math.max(.7,Math.min(s*.95,1.5));r.style.setProperty('--s',s.toFixed(4));r.style.setProperty('--sf',sf.toFixed(4));}
@@ -265,7 +317,8 @@ function renderDice(){if(!S)return;[['die1',S.lastDice[0]],['die2',S.lastDice[1]
 
 function renderActions(){
   if(!S||myIdx<0)return;const a=document.getElementById('actions');a.innerHTML='';
-  const pl=S.players[myIdx];if(!pl||pl.bankrupt||S.phase==='gameover')return;
+  const pl=S.players[myIdx];if(!pl||pl.bankrupt)return;
+  if(S.phase==='gameover'){aBtn('🔄 Neues Spiel','end',()=>doAction({type:'abort'}));return;}
   const my=S.currentPlayer===myIdx;
   document.getElementById('roll-btn').disabled=!(my&&S.turnPhase==='roll'&&!pl.inJail);
   if(my&&S.turnPhase==='roll'&&pl.inJail){
@@ -280,6 +333,8 @@ function renderActions(){
     aBtn('🤝 Handeln','trade',()=>openCompose());
     aBtn('Zug beenden','end',()=>doAction({type:'endturn'}));
   }
+  // Abort button always visible
+  aBtn('🛑 Spiel abbrechen','end',()=>{if(confirm('Spiel wirklich abbrechen? Alle kehren zur Lobby zurück.'))doAction({type:'abort'});});
 }
 function aBtn(t,c,f){const b=document.createElement('button');b.textContent=t;if(c)b.className=c;b.onclick=f;document.getElementById('actions').appendChild(b);}
 
