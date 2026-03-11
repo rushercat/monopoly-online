@@ -19,6 +19,14 @@ body{background:#1a1a2e;color:#eee;font-family:'Roboto Condensed',sans-serif;min
 .btn-join{background:#27ae60;color:#fff}.btn-start{background:#c62828;color:#fff}.btn-start:disabled{background:#555;cursor:default}
 #lobby-players{background:#16213e;border-radius:8px;padding:16px;min-width:280px;text-align:center}
 #lobby-players h3{font-family:'Oswald',sans-serif;color:#f5c542;margin-bottom:8px}
+#house-rules{background:#16213e;border-radius:8px;padding:16px;min-width:280px;text-align:left;margin-top:8px}
+#house-rules h3{font-family:'Oswald',sans-serif;color:#e67e22;margin-bottom:10px;text-align:center;font-size:16px}
+.rule-toggle{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #223;font-size:14px;cursor:pointer;user-select:none}
+.rule-toggle:last-child{border-bottom:none}
+.rule-toggle input[type="checkbox"]{width:18px;height:18px;accent-color:#e67e22;cursor:pointer}
+.rule-toggle .rule-desc{flex:1;line-height:1.3}
+.rule-toggle .rule-label{font-weight:700;color:#eee}
+.rule-toggle .rule-sub{font-size:11px;color:#889}
 .lobby-p{padding:4px 0;font-size:14px;display:flex;align-items:center;gap:8px;justify-content:center}
 .lobby-p .ldot{width:14px;height:14px;border-radius:50%;border:2px solid #000;display:inline-block}
 #lobby-error{color:#e74c3c;font-size:13px;min-height:20px}
@@ -119,11 +127,17 @@ body{background:#1a1a2e;color:#eee;font-family:'Roboto Condensed',sans-serif;min
 .card-popup-overlay{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.4);z-index:20;display:flex;align-items:center;justify-content:center;border-radius:4px}
 .card-popup-box{background:#fffde7;color:#111;border-radius:10px;padding:16px 20px;max-width:280px;text-align:center;border:3px solid #f9a825;box-shadow:0 4px 20px rgba(0,0,0,.5)}
 .card-popup-box.community{background:#e3f2fd;border-color:#1565c0}
+.card-popup-box.positive{background:#e8f5e9;border-color:#2e7d32}
+.card-popup-box.negative{background:#ffebee;border-color:#c62828}
 .card-popup-box h4{font-family:'Oswald',sans-serif;color:#f9a825;font-size:16px;margin-bottom:8px}
 .card-popup-box.community h4{color:#1565c0}
+.card-popup-box.positive h4{color:#2e7d32}
+.card-popup-box.negative h4{color:#c62828}
 .card-popup-box p{font-size:14px;line-height:1.4;margin-bottom:12px}
 .card-popup-box button{padding:8px 24px;border:none;border-radius:6px;background:#f9a825;color:#111;font-family:'Oswald',sans-serif;font-size:15px;cursor:pointer;letter-spacing:1px}
 .card-popup-box.community button{background:#1565c0;color:#fff}
+.card-popup-box.positive button{background:#2e7d32;color:#fff}
+.card-popup-box.negative button{background:#c62828;color:#fff}
 
 /* Debt resolution panel */
 .debt-panel{background:#2a0a0a;border:2px solid #c62828;border-radius:10px;padding:calc(12px*var(--sf));text-align:center}
@@ -203,6 +217,12 @@ body{background:#1a1a2e;color:#eee;font-family:'Roboto Condensed',sans-serif;min
   <input id="name-input" placeholder="Dein Name..." maxlength="16" autofocus>
   <button class="btn-join" id="join-btn" onclick="joinGame()">Beitreten</button>
   <div id="lobby-players"><h3>Lobby</h3><div id="lobby-list"><span style="color:#556">Warte auf Spieler...</span></div></div>
+  <div id="house-rules">
+    <h3>⚙️ Hausregeln</h3>
+    <label class="rule-toggle"><input type="checkbox" id="hr-parking" checked onchange="updateRules()"><div class="rule-desc"><div class="rule-label">🅿️ Frei-Parken-Topf</div><div class="rule-sub">Steuern & Kartenstrafen sammeln sich, wer drauf landet kassiert</div></div></label>
+    <label class="rule-toggle"><input type="checkbox" id="hr-go400" onchange="updateRules()"><div class="rule-desc"><div class="rule-label">💰 400€ bei LOS</div><div class="rule-sub">Direkt auf LOS landen = 400€ statt 200€</div></div></label>
+    <label class="rule-toggle"><input type="checkbox" id="hr-jail3" onchange="updateRules()"><div class="rule-desc"><div class="rule-label">🎲 3x Würfeln im Gefängnis</div><div class="rule-sub">3 Versuche pro Runde statt nur 1</div></div></label>
+  </div>
   <button class="btn-start" id="start-btn" onclick="startGame()" disabled>Spiel starten</button>
   <div id="lobby-status">Verbinde...</div>
 </div>
@@ -327,6 +347,21 @@ function renderLobby(){
   l.innerHTML=S.players.length?S.players.map((p,i)=>`<div class="lobby-p"><span class="ldot" style="background:${PC[i]}"></span>${p.name}${i===myIdx?' (Du)':''}</div>`).join(''):'<span style="color:#556">Warte...</span>';
   const b=document.getElementById('start-btn');b.disabled=S.players.length<2||myIdx<0;b.textContent=`Spiel starten (${S.players.length}/4)`;
   b.onclick=startGame;b.style.display='';
+  // Sync house rules checkboxes
+  if(S.houseRules){
+    const hp=document.getElementById('hr-parking'),hg=document.getElementById('hr-go400'),hj=document.getElementById('hr-jail3');
+    if(hp)hp.checked=S.houseRules.freeParkingPot;
+    if(hg)hg.checked=S.houseRules.landOnGo400;
+    if(hj)hj.checked=S.houseRules.jailExtraRolls;
+  }
+}
+
+function updateRules(){
+  send({type:'set_rules',rules:{
+    freeParkingPot:document.getElementById('hr-parking').checked,
+    landOnGo400:document.getElementById('hr-go400').checked,
+    jailExtraRolls:document.getElementById('hr-jail3').checked,
+  }});
 }
 
 function renderRollingOrder(){
@@ -490,7 +525,9 @@ function renderActions(){
   if(my&&S.turnPhase==='roll'&&pl.inJail){
     if(pl.money>=50)aBtn('50€ zahlen','jail',()=>doAction({type:'payjail'}));
     if(pl.jailFreeCards>0)aBtn('Freikarte','jail',()=>doAction({type:'usejailcard'}));
-    aBtn('Würfeln (Pasch?)','',()=>doAction({type:'roll'}));
+    const maxR=S.houseRules?.jailExtraRolls?3:1;
+    const used=pl.jailRollsThisTurn||0;
+    aBtn(`🎲 Würfeln ${maxR>1?`(${used+1}/${maxR})`:('(Pasch?)')}`,'',()=>doAction({type:'roll'}));
   }
   if(my&&S.turnPhase==='postroll'&&!S.auction){
     const sp=SPACES[pl.pos];
@@ -563,14 +600,22 @@ document.addEventListener('click',e=>{if(!e.target.closest('.settings-wrap'))doc
 function renderCardPopup(){
   const center=document.getElementById('board-center');
   if(!center)return;
-  // Remove existing popup
   const existing=center.querySelector('.card-popup-overlay');if(existing)existing.remove();
   if(!S||!S.pendingCard)return;
   const c=S.pendingCard, isMe=c.playerIdx===myIdx;
   const isCommunity=c.type==='community';
+  const act=c.card.action;
+  const isPositive=['gain','collectall','jailcard'].includes(act);
+  const isNegative=['pay','jail','repair','payall','back3'].includes(act);
+  let cls='card-popup-box';
+  if(isPositive)cls+=' positive';
+  else if(isNegative)cls+=' negative';
+  else if(isCommunity)cls+=' community';
   const ov=document.createElement('div');ov.className='card-popup-overlay';
-  const box=document.createElement('div');box.className='card-popup-box'+(isCommunity?' community':'');
-  box.innerHTML=`<h4>${isCommunity?'📋 Gemeinschaft':'❓ Ereignis'}</h4><p>${c.card.text}</p>`;
+  const box=document.createElement('div');box.className=cls;
+  const icon=isPositive?'💰':isNegative?'💸':isCommunity?'📋':'❓';
+  const title=isCommunity?'Gemeinschaft':'Ereignis';
+  box.innerHTML=`<h4>${icon} ${title}</h4><p>${c.card.text}</p>`;
   if(isMe){
     const btn=document.createElement('button');btn.textContent='OK';
     btn.onclick=(e)=>{e.stopPropagation();doAction({type:'confirm_card'});};
@@ -674,6 +719,14 @@ function renderAuction(){
   const canBid50=myIdx>=0&&pl&&!pl.bankrupt&&pl.money>=(au.highBid+50);
   const canBid100=myIdx>=0&&pl&&!pl.bankrupt&&pl.money>=(au.highBid+100);
 
+  const hasMortgageable=myIdx>=0&&pl&&!pl.bankrupt&&Object.entries(S.properties).some(([sid,p])=>{
+    if(p.owner!==myIdx||p.mortgaged||p.houses>0)return false;
+    const s=SPACES[parseInt(sid)];
+    if(s.group&&GM[s.group]&&GM[s.group].some(gid=>{const gp=S.properties[gid];return gp&&gp.owner===myIdx&&gp.houses>0;}))return false;
+    return true;
+  });
+  const hasUnmortgageable=myIdx>=0&&pl&&!pl.bankrupt&&Object.entries(S.properties).some(([,p])=>p.owner===myIdx&&p.mortgaged);
+
   let h=`<div class="auction-panel">
     <h3>🔨 AUKTION</h3>
     <div class="auction-property"><span class="abar" style="background:${col}"></span>${sp.name}</div>
@@ -686,6 +739,7 @@ function renderAuction(){
       <button class="bid50" onclick="doAction({type:'bid',amount:50})" ${canBid50?'':'disabled'}>+50€</button>
       <button class="bid100" onclick="doAction({type:'bid',amount:100})" ${canBid100?'':'disabled'}>+100€</button>
     </div>
+    ${(hasMortgageable||hasUnmortgageable)?`<div class="auction-btns" style="margin-top:6px"><button style="background:#8e44ad" onclick="openMort()">🏦 Hypothek aufnehmen</button></div>`:''}
     ${myIdx>=0&&pl?`<div style="margin-top:8px;font-size:calc(10px*var(--sf));color:#667">Dein Geld: ${pl.money}€ | Nächstes Gebot: ${au.highBid+10}€+</div>`:''}
   </div>`;
   a.innerHTML=h;
