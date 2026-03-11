@@ -38,6 +38,8 @@ body{background:#1a1a2e;color:#eee;font-family:'Roboto Condensed',sans-serif;min
 .cell.mortgaged-cell .name{opacity:.5;text-decoration:line-through}
 .cell.mortgaged-cell .price-tag{color:#c62828;font-weight:700}
 .cell.selected-cell{box-shadow:inset 0 0 0 3px #f5c542;z-index:10}
+.reconnecting-bar{position:fixed;top:0;left:0;right:0;background:#e67e22;color:#111;text-align:center;padding:6px;font-size:13px;font-weight:700;z-index:200;display:none}
+.reconnecting-bar.show{display:block}
 .tokens{display:flex;flex-wrap:wrap;gap:2px;justify-content:center;z-index:5;margin-top:1px}
 .tok{width:18px;height:18px;border-radius:50%;border:2px solid #000;font-size:9px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,.6)}
 .owner-dot{position:absolute;bottom:2px;right:2px;width:7px;height:7px;border-radius:50%;border:1px solid #000;z-index:4}
@@ -193,6 +195,7 @@ body{background:#1a1a2e;color:#eee;font-family:'Roboto Condensed',sans-serif;min
 </style>
 </head>
 <body>
+<div class="reconnecting-bar" id="reconn-bar">🔄 Verbindung verloren – verbinde neu...</div>
 <div id="lobby">
   <h1>MONOPOLY</h1>
   <div class="sub">ONLINE · DEUTSCHLAND</div>
@@ -236,7 +239,9 @@ let ws,myIdx=-1,SPACES=[],GM={},S=null,toP=new Set(),trP=new Set(),composing=fal
 function sortProps(ids){return ids.sort((a,b)=>{const sa=SPACES[a],sb=SPACES[b];const ga=gsk(sa),gb=gsk(sb);return ga!==gb?ga-gb:a-b;});}
 function gsk(sp){if(sp.type==='railroad')return 8;if(sp.type==='utility')return 9;const go=['brown','lblue','pink','orange','red','yellow','green','dblue'];return sp.group?go.indexOf(sp.group):99;}
 let myToken=sessionStorage.getItem('mtoken')||'';
+let myStoredIdx=parseInt(sessionStorage.getItem('myIdx'))||-1;
 let reconnecting=false;
+let pingInterval=null;
 
 function connect(){
   const p=location.protocol==='https:'?'wss:':'ws:';
@@ -244,32 +249,38 @@ function connect(){
   ws.onopen=()=>{
     const st=document.getElementById('lobby-status');
     if(st)st.textContent='✅ Verbunden!';
-    // Auto-rejoin if we have a token
-    if(myToken&&reconnecting){
+    document.getElementById('reconn-bar').classList.remove('show');
+    // Always try rejoin if we have a token (covers page reload + disconnects)
+    if(myToken){
       send({type:'rejoin',token:myToken});
-      reconnecting=false;
     }
+    // Start keepalive pings every 20s
+    if(pingInterval)clearInterval(pingInterval);
+    pingInterval=setInterval(()=>{send({type:'ping'});},20000);
   };
   ws.onmessage=e=>{
     const m=JSON.parse(e.data);
+    if(m.type==='pong')return; // keepalive response
     if(m.type==='welcome'){SPACES=m.spaces;GM=m.groupMembers;}
     else if(m.type==='joined'){
       myIdx=m.playerIdx;
       myToken=m.token||'';
       sessionStorage.setItem('mtoken',myToken);
+      sessionStorage.setItem('myIdx',myIdx);
       document.getElementById('join-btn').disabled=true;
       document.getElementById('name-input').disabled=true;
     }
     else if(m.type==='rejoined'){
       myIdx=m.playerIdx;
+      sessionStorage.setItem('myIdx',myIdx);
       document.getElementById('join-btn').disabled=true;
       document.getElementById('name-input').disabled=true;
     }
     else if(m.type==='state'){
       S=m.state;
       // Reset client if we got kicked back to lobby (abort)
-      if(S.phase==='lobby'&&S.players.length===0&&myIdx>=0){
-        myIdx=-1;myToken='';sessionStorage.removeItem('mtoken');
+      if(S.phase==='lobby'&&S.players.length===0){
+        myIdx=-1;myToken='';sessionStorage.removeItem('mtoken');sessionStorage.removeItem('myIdx');
         document.getElementById('join-btn').disabled=false;
         document.getElementById('name-input').disabled=false;
       }
@@ -277,11 +288,25 @@ function connect(){
       else if(S.phase==='rolling_order')renderRollingOrder();
       else{showGame();renderAll();}
     }
-    else if(m.type==='error'){const el=document.getElementById('lobby-error');if(el){el.textContent=m.text;setTimeout(()=>el.textContent='',3000);}}
+    else if(m.type==='error'){
+      const el=document.getElementById('lobby-error');
+      if(el){el.textContent=m.text;setTimeout(()=>el.textContent='',3000);}
+      // If rejoin failed (invalid token), clear and let user join fresh
+      if(m.text.includes('Ungültig')){
+        myToken='';myIdx=-1;sessionStorage.removeItem('mtoken');sessionStorage.removeItem('myIdx');
+        document.getElementById('join-btn').disabled=false;
+        document.getElementById('name-input').disabled=false;
+      }
+    }
   };
   ws.onclose=()=>{
+    if(pingInterval){clearInterval(pingInterval);pingInterval=null;}
     const st=document.getElementById('lobby-status');
     if(st)st.innerHTML='🔄 Verbindung verloren – verbinde neu...';
+    // Show reconnecting indicator in game too
+    document.getElementById('reconn-bar').classList.add('show');
+    const yi=document.getElementById('your-indicator');
+    if(yi)yi.textContent='🔄 Verbinde neu...';
     reconnecting=true;
     setTimeout(connect,2000);
   };
