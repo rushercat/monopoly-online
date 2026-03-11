@@ -112,6 +112,32 @@ body{background:#1a1a2e;color:#eee;font-family:'Roboto Condensed',sans-serif;min
 .pi-color-bar{height:calc(8px*var(--sf));border-radius:4px 4px 0 0;margin:-calc(10px*var(--sf));margin-bottom:8px;padding:0}
 
 /* Settings gear */
+
+/* Card popup */
+.card-popup-overlay{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.4);z-index:20;display:flex;align-items:center;justify-content:center;border-radius:4px}
+.card-popup-box{background:#fffde7;color:#111;border-radius:10px;padding:16px 20px;max-width:280px;text-align:center;border:3px solid #f9a825;box-shadow:0 4px 20px rgba(0,0,0,.5)}
+.card-popup-box.community{background:#e3f2fd;border-color:#1565c0}
+.card-popup-box h4{font-family:'Oswald',sans-serif;color:#f9a825;font-size:16px;margin-bottom:8px}
+.card-popup-box.community h4{color:#1565c0}
+.card-popup-box p{font-size:14px;line-height:1.4;margin-bottom:12px}
+.card-popup-box button{padding:8px 24px;border:none;border-radius:6px;background:#f9a825;color:#111;font-family:'Oswald',sans-serif;font-size:15px;cursor:pointer;letter-spacing:1px}
+.card-popup-box.community button{background:#1565c0;color:#fff}
+
+/* Debt resolution panel */
+.debt-panel{background:#2a0a0a;border:2px solid #c62828;border-radius:10px;padding:calc(12px*var(--sf));text-align:center}
+.debt-panel h3{font-family:'Oswald',sans-serif;color:#c62828;font-size:calc(16px*var(--sf));margin-bottom:8px}
+.debt-panel .debt-amount{font-size:calc(24px*var(--sf));color:#e74c3c;font-weight:700;font-family:'Oswald',sans-serif;margin:8px 0}
+.debt-panel .debt-msg{font-size:calc(11px*var(--sf));color:#ccc;margin-bottom:10px}
+.debt-item{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #442;font-size:calc(11px*var(--sf))}
+.debt-item button{padding:3px 10px;border:none;border-radius:4px;cursor:pointer;font-size:calc(10px*var(--sf));color:#fff}
+.debt-item .d-sell{background:#e67e22}.debt-item .d-mort{background:#8e44ad}
+.debt-item button:disabled{background:#555}
+.debt-btns{display:flex;gap:8px;justify-content:center;margin-top:10px;flex-wrap:wrap}
+.debt-btns button{padding:8px 16px;border:none;border-radius:5px;font-family:'Oswald',sans-serif;font-size:calc(13px*var(--sf));cursor:pointer}
+.debt-btns .d-ok{background:#27ae60;color:#fff}.debt-btns .d-rip{background:#c62828;color:#fff}
+.debt-btns .d-ok:disabled{background:#555}
+
+/* Settings gear */
 .settings-wrap{position:relative;display:inline-block}
 .gear-btn{background:none;border:none;font-size:calc(20px*var(--sf));cursor:pointer;padding:4px;color:#888;transition:color .2s}
 .gear-btn:hover{color:#f5c542}
@@ -433,11 +459,7 @@ function renderActions(){
   if(!S||myIdx<0)return;const a=document.getElementById('actions');a.innerHTML='';
   const pl=S.players[myIdx];if(!pl||pl.bankrupt)return;
   if(S.phase==='gameover'){aBtn('🔄 Neues Spiel','end',()=>doAction({type:'abort'}));return;}
-  if(S.auction){
-    // During auction, only show abort
-    aBtn('🛑 Spiel abbrechen','end',()=>{if(confirm('Spiel wirklich abbrechen?'))doAction({type:'abort'});});
-    return;
-  }
+  if(S.auction||S.pendingCard||S.debtPlayer>=0){document.getElementById('roll-btn').disabled=true;return;} // Actions blocked during these phases
   const my=S.currentPlayer===myIdx;
   document.getElementById('roll-btn').disabled=!(my&&S.turnPhase==='roll'&&!pl.inJail);
   if(my&&S.turnPhase==='roll'&&pl.inJail){
@@ -461,7 +483,7 @@ function renderActions(){
 function aBtn(t,c,f){const b=document.createElement('button');b.textContent=t;if(c)b.className=c;b.onclick=f;document.getElementById('actions').appendChild(b);}
 
 function renderLog(){if(!S)return;const e=document.getElementById('log');e.innerHTML=S.log.slice().reverse().map(l=>{const t=typeof l==='object'?l.text:l;const c=typeof l==='object'?l.color:'#888';return `<div class="log-e" style="background:${c}18;border-left:2px solid ${c}">${t}</div>`;}).join('');}
-function renderAll(){renderBoard();renderPlayers();renderDice();renderActions();renderLog();renderAuction();if(!composing&&!S?.auction)renderTrade();}
+function renderAll(){renderBoard();renderPlayers();renderDice();renderActions();renderLog();renderAuction();renderCardPopup();renderDebt();if(!composing&&!S?.auction&&S?.debtPlayer<0&&!S?.pendingCard)renderTrade();}
 
 // Build
 function canBuild(){
@@ -511,6 +533,80 @@ function closeMort(){document.getElementById('mort-modal').classList.remove('sho
 
 function toggleSettings(){document.getElementById('settings-menu').classList.toggle('show');}
 document.addEventListener('click',e=>{if(!e.target.closest('.settings-wrap'))document.getElementById('settings-menu')?.classList.remove('show');});
+
+// Card popup on board center
+function renderCardPopup(){
+  const center=document.getElementById('board-center');
+  if(!center)return;
+  // Remove existing popup
+  const existing=center.querySelector('.card-popup-overlay');if(existing)existing.remove();
+  if(!S||!S.pendingCard)return;
+  const c=S.pendingCard, isMe=c.playerIdx===myIdx;
+  const isCommunity=c.type==='community';
+  const ov=document.createElement('div');ov.className='card-popup-overlay';
+  const box=document.createElement('div');box.className='card-popup-box'+(isCommunity?' community':'');
+  box.innerHTML=`<h4>${isCommunity?'📋 Gemeinschaft':'❓ Ereignis'}</h4><p>${c.card.text}</p>`;
+  if(isMe){
+    const btn=document.createElement('button');btn.textContent='OK';
+    btn.onclick=(e)=>{e.stopPropagation();doAction({type:'confirm_card'});};
+    box.appendChild(btn);
+  }else{
+    const wait=document.createElement('div');wait.style.cssText='font-size:11px;color:#888;margin-top:8px';
+    wait.textContent='⏳ '+S.players[c.playerIdx].name+' muss bestätigen...';
+    box.appendChild(wait);
+  }
+  ov.appendChild(box);center.appendChild(ov);
+}
+
+// Debt resolution panel
+function renderDebt(){
+  const a=document.getElementById('trade-area');
+  if(!S||S.debtPlayer<0)return;
+  const isMe=S.debtPlayer===myIdx;
+  const dp=S.players[S.debtPlayer];
+  if(!isMe){
+    a.innerHTML=`<div class="debt-panel"><h3>⚠️ Schulden</h3><div class="debt-amount">${dp.money}€</div><div class="debt-msg">${dp.name} muss Schulden begleichen...</div></div>`;
+    return;
+  }
+  // I am in debt - show resolution UI
+  const myProps=sortProps(Object.entries(S.properties).filter(([,p])=>p.owner===myIdx).map(([s])=>parseInt(s)));
+  let h=`<div class="debt-panel"><h3>⚠️ Du hast Schulden!</h3><div class="debt-amount">${dp.money}€</div><div class="debt-msg">Verkaufe Häuser oder belaste Grundstücke mit Hypotheken um auf 0€+ zu kommen.</div>`;
+  // List assets
+  myProps.forEach(sid=>{
+    const sp=SPACES[sid],pr=S.properties[sid];
+    const col=pC(sid);
+    h+=`<div class="debt-item"><span><span style="color:${col}">■</span> ${sp.name}`;
+    if(pr.houses>0)h+=` (${pr.houses===5?'Hotel':pr.houses+'H'})`;
+    if(pr.mortgaged)h+=` 🏦`;
+    h+=`</span><span>`;
+    // Sell house button
+    if(pr.houses>0){
+      const g=GM[sp.group];const maxH=g?Math.max(...g.map(id=>S.properties[id]?.houses||0)):0;
+      const canSell=pr.houses>=maxH;
+      const refund=Math.floor(sp.houseCost/2);
+      h+=`<button class="d-sell" ${canSell?'':'disabled'} onclick="doAction({type:'debt_sell_house',spaceId:${sid}})">Haus -${refund>0?'+'+refund:refund}€</button> `;
+    }
+    // Mortgage button
+    if(!pr.mortgaged&&pr.houses===0){
+      let canMort=true;
+      if(sp.group&&GM[sp.group]&&GM[sp.group].some(gid=>{const gp=S.properties[gid];return gp&&gp.owner===myIdx&&gp.houses>0;}))canMort=false;
+      const v=Math.floor(sp.price/2);
+      h+=`<button class="d-mort" ${canMort?'':'disabled'} onclick="doAction({type:'debt_mortgage',spaceId:${sid}})">Hyp +${v}€</button>`;
+    }
+    h+=`</span></div>`;
+  });
+  h+=`<div class="debt-btns">`;
+  h+=`<button class="d-ok" ${dp.money>=0?'':'disabled'} onclick="doAction({type:'resolve_debt'})">✅ Schulden beglichen</button>`;
+  if(!canResolve()){
+    h+=`<button class="d-rip" onclick="if(confirm('Wirklich aufgeben?'))doAction({type:'declare_bankrupt'})">💀 Bankrott</button>`;
+  }
+  h+=`</div></div>`;
+  a.innerHTML=h;
+}
+function canResolve(){
+  if(!S||myIdx<0)return true;
+  return S.players[myIdx].money>=0||Object.entries(S.properties).some(([,p])=>p.owner===myIdx&&(p.houses>0||!p.mortgaged));
+}
 
 // Sell houses
 function canSellHouses(){
