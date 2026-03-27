@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monopoly Online</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=Roboto+Condensed:wght@400;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+html{height:100%}
+body{background:#1a1a2e;color:#eee;font-family:'Roboto Condensed',sans-serif;min-height:100vh;overflow-x:hidden}
+:root{--s:1;--sf:1}
+#lobby{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;gap:16px}
+#lobby h1{font-family:'Oswald',sans-serif;font-size:48px;color:#c62828;text-shadow:2px 2px 0 #000;letter-spacing:4px}
+#lobby .sub{color:#aaa;font-size:14px;margin-bottom:10px}
+#lobby input{padding:12px 20px;border-radius:8px;border:2px solid #334;background:#16213e;color:#fff;font-size:18px;text-align:center;width:280px;font-family:'Roboto Condensed',sans-serif}
+#lobby input:focus{outline:none;border-color:#f5c542}
+#lobby button{padding:12px 32px;border-radius:8px;border:none;font-family:'Oswald',sans-serif;font-size:18px;cursor:pointer;letter-spacing:1px}
+.btn-join{background:#27ae60;color:#fff}.btn-start{background:#c62828;color:#fff}.btn-start:disabled{background:#555;cursor:default}
+#lobby-players{background:#16213e;border-radius:8px;padding:16px;min-width:280px;text-align:center}
+#lobby-players h3{font-family:'Oswald',sans-serif;color:#f5c542;margin-bottom:8px}
+#house-rules{background:#16213e;border-radius:8px;padding:16px;min-width:280px;text-align:left;margin-top:8px}
+#house-rules h3{font-family:'Oswald',sans-serif;color:#e67e22;margin-bottom:10px;text-align:center;font-size:16px}
+.rule-toggle{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #223;font-size:14px;cursor:pointer;user-select:none}
+.rule-toggle:last-child{border-bottom:none}
+.rule-toggle input[type="checkbox"]{width:18px;height:18px;accent-color:#e67e22;cursor:pointer}
+.rule-toggle .rule-desc{flex:1;line-height:1.3}
+.rule-toggle .rule-label{font-weight:700;color:#eee}
+.rule-toggle .rule-sub{font-size:11px;color:#889}
+.lobby-p{padding:4px 0;font-size:14px;display:flex;align-items:center;gap:8px;justify-content:center}
+.lobby-p .ldot{width:14px;height:14px;border-radius:50%;border:2px solid #000;display:inline-block}
+#lobby-error{color:#e74c3c;font-size:13px;min-height:20px}
+#lobby-status{color:#81d4fa;font-size:13px}
+#game{display:none}
+#app{display:flex;flex-direction:row;align-items:flex-start;justify-content:center;gap:calc(14px*var(--s));padding:calc(8px*var(--s));min-height:100vh}
+#board-wrap{flex-shrink:0;width:calc(702px*var(--s));height:calc(702px*var(--s));overflow:hidden}
+#board{display:grid;grid-template-columns:90px repeat(9,58px) 90px;grid-template-rows:90px repeat(9,58px) 90px;width:702px;height:702px;background:#c8e6c0;border:3px solid #222;border-radius:6px;position:relative;transform:scale(var(--s));transform-origin:0 0}
+.cell{border:1px solid #333;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;position:relative;overflow:hidden;font-size:7px;text-align:center;color:#111;background:#d5ecc2;cursor:pointer}
+.cell .color-bar{position:absolute;width:100%;height:14px;z-index:2}
+.cell.bottom .color-bar{top:0}.cell.left .color-bar{right:0;width:14px;height:100%;top:0}.cell.top .color-bar{bottom:0}.cell.right .color-bar{left:0;width:14px;height:100%;top:0}
+.cell.bottom{padding-top:16px}.cell.top{padding-bottom:16px;justify-content:flex-end}.cell.left{padding-right:16px;justify-content:center}.cell.right{padding-left:16px;justify-content:center}
+.cell .name{font-weight:700;font-size:8px;line-height:1.15;padding:0 2px;z-index:1}
+.cell .price-tag{font-size:7.5px;color:#333;z-index:1;font-weight:600}
+.cell.corner{font-size:9px;font-weight:700;background:#d5ecc2;justify-content:center;padding:0}.cell.corner .name{font-size:9px}
+.cell.mortgaged-cell{background:#d5ecc288}
+.cell.mortgaged-cell .name{opacity:.5;text-decoration:line-through}
+.cell.mortgaged-cell .price-tag{color:#c62828;font-weight:700}
+.cell.selected-cell{box-shadow:inset 0 0 0 3px #f5c542;z-index:10}
+.reconnecting-bar{position:fixed;top:0;left:0;right:0;background:#e67e22;color:#111;text-align:center;padding:6px;font-size:13px;font-weight:700;z-index:200;display:none}
+.reconnecting-bar.show{display:block}
+.tokens{display:flex;flex-wrap:wrap;gap:2px;justify-content:center;z-index:5;margin-top:1px}
+.tok{width:18px;height:18px;border-radius:50%;border:2px solid #000;font-size:9px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,.6)}
+.owner-dot{position:absolute;bottom:2px;right:2px;width:7px;height:7px;border-radius:50%;border:1px solid #000;z-index:4}
+.houses-row{display:flex;gap:1px;position:absolute;z-index:3;align-items:center;justify-content:center}
+.cell.bottom .houses-row{top:1px;left:0;right:0;height:14px;justify-content:center}
+.cell.left .houses-row{right:0;top:0;bottom:0;flex-direction:column;width:14px;justify-content:center}
+.cell.top .houses-row{bottom:0;left:0;right:0;height:14px;justify-content:center}
+.cell.right .houses-row{left:0;top:0;bottom:0;flex-direction:column;width:14px;justify-content:center}
+.house-icon{width:8px;height:10px;background:#2e7d32;border:1px solid #1b5e20;border-radius:1px 1px 0 0}
+.hotel-icon{width:12px;height:12px;background:#c62828;border:1px solid #8e0000;border-radius:2px}
+#board-center{grid-column:2/11;grid-row:2/11;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#c8e6c0;font-family:'Oswald',sans-serif;border:none}
+#board-center h1{font-size:38px;color:#c62828;text-shadow:2px 2px 0 #000;letter-spacing:4px}
+#board-center .subtitle{font-size:12px;color:#333;letter-spacing:2px}
+#pot-display{margin-top:12px;font-size:14px;color:#2e7d32;font-weight:700}
+#your-indicator{margin-top:8px;font-size:13px;padding:4px 12px;border-radius:12px;display:inline-block}
+#side{width:calc(340px*var(--sf));display:flex;flex-direction:column;gap:calc(10px*var(--sf));max-height:calc(702px*var(--s));overflow-y:auto;flex-shrink:0;font-size:calc(12px*var(--sf))}
+#trade-side{width:calc(300px*var(--sf));flex-shrink:0;max-height:calc(702px*var(--s));overflow-y:auto;font-size:calc(12px*var(--sf))}
+.panel{background:#16213e;border:1px solid #334;border-radius:8px;padding:calc(10px*var(--sf))}
+.panel h2{font-family:'Oswald',sans-serif;font-size:calc(15px*var(--sf));margin-bottom:calc(6px*var(--sf));color:#f5c542;letter-spacing:1px}
+#dice-area{display:flex;align-items:center;gap:calc(12px*var(--sf));flex-wrap:wrap}
+.die{width:calc(48px*var(--sf));height:calc(48px*var(--sf));background:#fff;border-radius:8px;display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:1fr 1fr 1fr;padding:calc(6px*var(--sf));gap:2px}
+.pip{width:100%;height:100%;border-radius:50%;background:transparent}.pip.show{background:#222}
+#roll-btn{padding:calc(10px*var(--sf)) calc(22px*var(--sf));background:#c62828;color:#fff;border:none;border-radius:6px;font-family:'Oswald',sans-serif;font-size:calc(16px*var(--sf));cursor:pointer;transition:background .2s}
+#roll-btn:hover{background:#e53935}#roll-btn:disabled{background:#555;cursor:default}
+#turn-info{font-size:calc(13px*var(--sf));color:#aaa;margin-top:calc(4px*var(--sf))}
+.player-card{display:flex;flex-direction:column;gap:calc(4px*var(--sf));padding:calc(8px*var(--sf));border-radius:6px;margin-bottom:calc(6px*var(--sf));background:#0f3460;border:2px solid transparent}
+.player-card.active{border-color:#f5c542}.player-card.you{box-shadow:inset 0 0 0 1px #81d4fa55}.player-card.bankrupt{opacity:.4}.player-card.dc .pname::after{content:' ⚡';color:#e74c3c}
+.player-card .pheader{display:flex;align-items:center;gap:calc(8px*var(--sf))}
+.player-card .dot{width:calc(18px*var(--sf));height:calc(18px*var(--sf));border-radius:50%;border:2px solid #000;flex-shrink:0}
+.player-card .pinfo{flex:1;font-size:calc(12px*var(--sf))}.player-card .pname{font-weight:700;font-size:calc(13px*var(--sf))}.player-card .pmoney{color:#8f8}.player-card .ptag{font-size:calc(9px*var(--sf));color:#81d4fa;font-style:italic}
+.prop-grid{display:flex;flex-wrap:wrap;gap:calc(3px*var(--sf));margin-top:calc(4px*var(--sf))}
+.prop-chip{display:flex;flex-direction:column;width:calc(76px*var(--sf));border-radius:4px;overflow:hidden;background:#0a1e3d;border:1px solid #1a3a6a}
+.prop-chip .pbar{height:calc(10px*var(--sf));display:flex;align-items:center;gap:1px;padding:0 2px}
+.prop-chip .pbar .mh{width:calc(6px*var(--sf));height:calc(6px*var(--sf));background:#43a047;border:.5px solid #2e7d32;border-radius:1px;flex-shrink:0}
+.prop-chip .pbar .mht{width:calc(8px*var(--sf));height:calc(7px*var(--sf));background:#e53935;border:.5px solid #b71c1c;border-radius:1px;flex-shrink:0}
+.prop-chip .pcn{font-size:calc(7px*var(--sf));color:#ccc;padding:calc(2px*var(--sf));line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.no-props{font-size:calc(10px*var(--sf));color:#667;font-style:italic}
+#log{max-height:calc(140px*var(--sf));overflow-y:auto;font-size:calc(11px*var(--sf));color:#ccc;line-height:1.5;scrollbar-width:thin;display:flex;flex-direction:column-reverse}
+.log-e{padding:1px calc(4px*var(--sf));border-radius:3px;margin-bottom:1px}
+.prop-chip.mort{opacity:.5;position:relative}.prop-chip.mort::after{content:'H';position:absolute;top:0;right:2px;font-size:calc(7px*var(--sf));color:#e74c3c;font-weight:700}
+.prop-chip.mort .pbar{background:#555!important}
+#mort-modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:100;align-items:center;justify-content:center}
+#mort-modal.show{display:flex}
+#mort-content{background:#16213e;border:2px solid #e67e22;border-radius:10px;padding:20px;max-width:450px;width:90%;max-height:80vh;overflow-y:auto}
+#mort-content h3{font-family:'Oswald',sans-serif;color:#e67e22;margin-bottom:10px}
+
+/* Auction */
+.auction-panel{background:#1a0a2e;border:2px solid #f39c12;border-radius:10px;padding:calc(12px*var(--sf));text-align:center}
+.auction-panel h3{font-family:'Oswald',sans-serif;color:#f39c12;font-size:calc(16px*var(--sf));margin-bottom:8px}
+.auction-property{font-size:calc(14px*var(--sf));font-weight:700;color:#fff;margin-bottom:6px}
+.auction-property .abar{display:inline-block;width:calc(14px*var(--sf));height:calc(14px*var(--sf));border-radius:3px;vertical-align:middle;margin-right:6px;border:1px solid #555}
+.auction-bid-display{font-size:calc(22px*var(--sf));color:#8f8;font-weight:700;font-family:'Oswald',sans-serif;margin:8px 0}
+.auction-bidder{font-size:calc(12px*var(--sf));color:#ccc;margin-bottom:8px}
+.auction-timer{font-size:calc(18px*var(--sf));color:#f39c12;font-family:'Oswald',sans-serif;margin-bottom:10px}
+.auction-timer .timer-bar{width:100%;height:6px;background:#333;border-radius:3px;margin-top:4px;overflow:hidden}
+.auction-timer .timer-fill{height:100%;background:#f39c12;border-radius:3px;transition:width .5s linear}
+.auction-btns{display:flex;gap:calc(8px*var(--sf));justify-content:center;flex-wrap:wrap}
+.auction-btns button{padding:calc(8px*var(--sf)) calc(16px*var(--sf));border:none;border-radius:6px;font-family:'Oswald',sans-serif;font-size:calc(14px*var(--sf));cursor:pointer;color:#fff;transition:background .2s}
+.auction-btns .bid10{background:#7f8c8d}.bid10:hover{background:#95a5a6}
+.auction-btns .bid50{background:#2980b9}.bid50:hover{background:#3498db}
+.auction-btns .bid100{background:#8e44ad}.bid100:hover{background:#9b59b6}
+.auction-btns button:disabled{background:#555;cursor:default}
+
+/* Property info panel */
+#prop-info{background:#0a1e3d;border-radius:8px;padding:calc(10px*var(--sf));margin-top:calc(8px*var(--sf));display:none}
+#prop-info.show{display:block}
+#prop-info h4{font-family:'Oswald',sans-serif;color:#f5c542;font-size:calc(14px*var(--sf));margin-bottom:6px}
+#prop-info .pi-row{display:flex;justify-content:space-between;font-size:calc(11px*var(--sf));padding:2px 0;border-bottom:1px solid #1a3050}
+#prop-info .pi-row.highlight{color:#8f8;font-weight:700}
+#prop-info .pi-mort{color:#e74c3c;font-weight:700;font-size:calc(12px*var(--sf));margin-top:4px}
+#prop-info .pi-owner{margin-top:4px;font-size:calc(11px*var(--sf))}
+.pi-color-bar{height:calc(8px*var(--sf));border-radius:4px 4px 0 0;margin:-calc(10px*var(--sf));margin-bottom:8px;padding:0}
+
+/* Settings gear */
+
+/* Card popup */
+.card-popup-overlay{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.4);z-index:20;display:flex;align-items:center;justify-content:center;border-radius:4px}
+.card-popup-box{background:#fffde7;color:#111;border-radius:10px;padding:16px 20px;max-width:280px;text-align:center;border:3px solid #f9a825;box-shadow:0 4px 20px rgba(0,0,0,.5)}
+.card-popup-box.community{background:#e3f2fd;border-color:#1565c0}
+.card-popup-box.positive{background:#e8f5e9;border-color:#2e7d32}
+.card-popup-box.negative{background:#ffebee;border-color:#c62828}
+.card-popup-box h4{font-family:'Oswald',sans-serif;color:#f9a825;font-size:16px;margin-bottom:8px}
+.card-popup-box.community h4{color:#1565c0}
+.card-popup-box.positive h4{color:#2e7d32}
+.card-popup-box.negative h4{color:#c62828}
+.card-popup-box p{font-size:14px;line-height:1.4;margin-bottom:12px}
+.card-popup-box button{padding:8px 24px;border:none;border-radius:6px;background:#f9a825;color:#111;font-family:'Oswald',sans-serif;font-size:15px;cursor:pointer;letter-spacing:1px}
+.card-popup-box.community button{background:#1565c0;color:#fff}
+.card-popup-box.positive button{background:#2e7d32;color:#fff}
+.card-popup-box.negative button{background:#c62828;color:#fff}
+
+/* Debt resolution panel */
+.debt-panel{background:#2a0a0a;border:2px solid #c62828;border-radius:10px;padding:calc(12px*var(--sf));text-align:center}
+.debt-panel h3{font-family:'Oswald',sans-serif;color:#c62828;font-size:calc(16px*var(--sf));margin-bottom:8px}
+.debt-panel .debt-amount{font-size:calc(24px*var(--sf));color:#e74c3c;font-weight:700;font-family:'Oswald',sans-serif;margin:8px 0}
+.debt-panel .debt-msg{font-size:calc(11px*var(--sf));color:#ccc;margin-bottom:10px}
+.debt-item{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #442;font-size:calc(11px*var(--sf))}
+.debt-item button{padding:3px 10px;border:none;border-radius:4px;cursor:pointer;font-size:calc(10px*var(--sf));color:#fff}
+.debt-item .d-sell{background:#e67e22}.debt-item .d-mort{background:#8e44ad}
+.debt-item button:disabled{background:#555}
+.debt-btns{display:flex;gap:8px;justify-content:center;margin-top:10px;flex-wrap:wrap}
+.debt-btns button{padding:8px 16px;border:none;border-radius:5px;font-family:'Oswald',sans-serif;font-size:calc(13px*var(--sf));cursor:pointer}
+.debt-btns .d-ok{background:#27ae60;color:#fff}.debt-btns .d-rip{background:#c62828;color:#fff}
+.debt-btns .d-ok:disabled{background:#555}
+
+/* Settings gear */
+.settings-wrap{position:relative;display:inline-block}
+.gear-btn{background:none;border:none;font-size:calc(20px*var(--sf));cursor:pointer;padding:4px;color:#888;transition:color .2s}
+.gear-btn:hover{color:#f5c542}
+.settings-menu{display:none;position:absolute;right:0;top:100%;background:#16213e;border:1px solid #445;border-radius:6px;padding:6px;min-width:160px;z-index:50}
+.settings-menu.show{display:block}
+.settings-menu button{display:block;width:100%;text-align:left;padding:8px 10px;border:none;border-radius:4px;background:none;color:#eee;font-size:calc(12px*var(--sf));cursor:pointer;font-family:'Roboto Condensed',sans-serif}
+.settings-menu button:hover{background:#c0392b33}
+
+/* Sell houses button */
+#actions button.sell{background:#e67e22}#actions button.sell:hover{background:#f39c12}
+.mort-item{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #333;font-size:12px}
+.mort-item button{padding:3px 10px;border:none;border-radius:4px;cursor:pointer;font-size:11px;color:#fff}
+.mort-item button.m-on{background:#e67e22}.mort-item button.m-off{background:#27ae60}
+.mort-item button:disabled{background:#555}
+#actions{display:flex;flex-wrap:wrap;gap:calc(6px*var(--sf))}
+#actions button{padding:calc(6px*var(--sf)) calc(14px*var(--sf));border-radius:5px;border:none;font-family:'Roboto Condensed',sans-serif;font-size:calc(12px*var(--sf));cursor:pointer;background:#1a5276;color:#fff}
+#actions button.buy{background:#27ae60}#actions button.build{background:#8e44ad}#actions button.trade{background:#e67e22}#actions button.end{background:#c0392b}#actions button.jail{background:#d4a017;color:#111}
+#build-modal{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:100;align-items:center;justify-content:center}
+#build-modal.show{display:flex}
+#build-content{background:#16213e;border:2px solid #8e44ad;border-radius:10px;padding:20px;max-width:450px;width:90%;max-height:80vh;overflow-y:auto}
+#build-content h3{font-family:'Oswald',sans-serif;color:#ce93d8;margin-bottom:10px}
+.build-item{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #333;font-size:12px}
+.build-item button{padding:3px 10px;border:none;border-radius:4px;cursor:pointer;font-size:11px;background:#8e44ad;color:#fff}
+.build-item button:disabled{background:#555}
+.ts{background:#0a1e3d;border-left:3px solid #e67e22;padding:6px 10px;margin-bottom:10px;font-size:calc(11px*var(--sf));color:#f5c542;border-radius:0 4px 4px 0;line-height:1.4}
+.ts.in{border-left-color:#2ecc71;color:#8f8}.ts.ct{border-left-color:#3498db;color:#81d4fa}
+.tc{display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
+.tcl{background:#0a1e3d;border-radius:6px;padding:8px}
+.tcl h4{font-family:'Oswald',sans-serif;font-size:calc(12px*var(--sf));margin-bottom:6px;text-align:center;color:#e67e22}
+.tcl .tmr{display:flex;align-items:center;gap:4px;margin-bottom:6px;font-size:calc(11px*var(--sf))}
+.tcl input[type="number"]{width:70px;padding:3px 5px;border-radius:4px;border:1px solid #445;background:#162447;color:#fff;font-size:calc(11px*var(--sf));text-align:right}
+.tcl input:focus{outline:none;border-color:#e67e22}
+.tpi{display:flex;align-items:center;gap:5px;padding:3px 4px;border-bottom:1px solid #1a3050;font-size:calc(10px*var(--sf));cursor:pointer;border-radius:3px}
+.tpi:hover{background:#1a3050}
+.tpi input[type="checkbox"]{accent-color:#e67e22;cursor:pointer;width:12px;height:12px}
+.tpi .tc2{width:8px;height:8px;border-radius:2px;border:1px solid #555;flex-shrink:0}
+.tpi .tn{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tar{text-align:center;color:#e67e22;font-size:18px;padding:2px 0}
+.tps{display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:calc(12px*var(--sf))}
+.tps select{padding:4px 8px;border-radius:4px;border:1px solid #445;background:#162447;color:#fff;font-size:calc(12px*var(--sf));flex:1}
+.tbt{display:flex;gap:6px;justify-content:center;margin-top:8px;flex-wrap:wrap}
+.tbt button{padding:6px 12px;border-radius:5px;border:none;font-size:calc(11px*var(--sf));cursor:pointer;font-family:'Roboto Condensed',sans-serif}
+.tbt .tc3{background:#e67e22;color:#fff}.tbt .tc3:disabled{background:#555}.tbt .tc4{background:#c0392b;color:#fff}.tbt .tc5{background:#27ae60;color:#fff}.tbt .tc6{background:#2980b9;color:#fff}
+.tsu{background:#0a1e3d;border-radius:5px;padding:6px 8px;font-size:calc(11px*var(--sf));margin-top:6px;text-align:center;color:#aaa;min-height:20px}
+.oc2{background:#0a1e3d;border-radius:8px;padding:10px;margin-bottom:10px}
+.oc2 h5{font-size:calc(11px*var(--sf));color:#e67e22;margin-bottom:4px;font-family:'Oswald',sans-serif}
+.oi{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px}
+.ocp{display:inline-flex;align-items:center;gap:4px;background:#162447;border-radius:4px;padding:3px 7px;font-size:calc(10px*var(--sf))}
+.ocp .od{width:8px;height:8px;border-radius:2px;border:1px solid #555}
+.om{color:#8f8;font-weight:700;font-size:calc(12px*var(--sf))}
+.odv{text-align:center;color:#e67e22;font-size:14px;padding:4px 0}
+@media(max-width:900px){#app{flex-wrap:wrap;justify-content:center}}
+</style>
+</head>
+<body>
+<div class="reconnecting-bar" id="reconn-bar">🔄 Verbindung verloren – verbinde neu...</div>
+<div id="lobby">
+  <h1>MONOPOLY</h1>
+  <div class="sub">ONLINE · DEUTSCHLAND</div>
+  <div id="lobby-error"></div>
+  <input id="name-input" placeholder="Dein Name..." maxlength="16" autofocus>
+  <button class="btn-join" id="join-btn" onclick="joinGame()">Beitreten</button>
+  <div id="lobby-players"><h3>Lobby</h3><div id="lobby-list"><span style="color:#556">Warte auf Spieler...</span></div></div>
+  <div id="house-rules">
+    <h3>⚙️ Hausregeln</h3>
+    <label class="rule-toggle"><input type="checkbox" id="hr-parking" checked onchange="updateRules()"><div class="rule-desc"><div class="rule-label">🅿️ Frei-Parken-Topf</div><div class="rule-sub">Steuern & Kartenstrafen sammeln sich, wer drauf landet kassiert</div></div></label>
+    <label class="rule-toggle"><input type="checkbox" id="hr-go400" onchange="updateRules()"><div class="rule-desc"><div class="rule-label">💰 400€ bei LOS</div><div class="rule-sub">Direkt auf LOS landen = 400€ statt 200€</div></div></label>
+    <label class="rule-toggle"><input type="checkbox" id="hr-jail3" onchange="updateRules()"><div class="rule-desc"><div class="rule-label">🎲 3x Würfeln im Gefängnis</div><div class="rule-sub">3 Versuche pro Runde statt nur 1</div></div></label>
+  </div>
+  <button class="btn-start" id="start-btn" onclick="startGame()" disabled>Spiel starten</button>
+  <div id="lobby-status">Verbinde...</div>
+</div>
+<div id="game">
+  <div id="app">
+    <div id="board-wrap"><div id="board"></div></div>
+    <div id="side">
+      <div class="panel"><h2>🎲 Würfeln</h2><div id="dice-area"><div class="die" id="die1"></div><div class="die" id="die2"></div><button id="roll-btn" onclick="doAction({type:'roll'})" disabled>Würfeln</button></div><div id="turn-info"></div></div>
+      <div class="panel"><h2>👥 Spieler</h2><div id="players-area"></div></div>
+      <div class="panel"><h2>⚡ Aktionen</h2><div id="actions"></div></div>
+      <div class="panel"><h2>📜 Log</h2><div id="log"></div></div>
+    </div>
+    <div id="trade-side">
+      <div class="panel" style="display:flex;justify-content:space-between;align-items:center;padding:calc(6px*var(--sf)) calc(10px*var(--sf))">
+        <h2 style="margin:0">🤝 Handel</h2>
+        <div class="settings-wrap"><button class="gear-btn" onclick="toggleSettings()">⚙️</button>
+          <div class="settings-menu" id="settings-menu">
+            <button onclick="if(confirm('Spiel wirklich abbrechen?')){doAction({type:'abort'});toggleSettings();}">🛑 Spiel abbrechen</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel"><div id="trade-area"></div></div>
+      <div class="panel"><h2>📋 Grundstück-Info</h2><div id="prop-info"></div></div>
+    </div>
+  </div>
+</div>
+<div id="build-modal"><div id="build-content"><h3>🏠 Häuser / Hotels</h3><div id="build-list"></div><br><button onclick="closeBuild()" style="padding:6px 16px;border:none;border-radius:5px;background:#c0392b;color:#fff;cursor:pointer">Schließen</button></div></div>
+<div id="mort-modal"><div id="mort-content"><h3>🏦 Hypotheken</h3><div id="mort-list"></div><br><button onclick="closeMort()" style="padding:6px 16px;border:none;border-radius:5px;background:#c0392b;color:#fff;cursor:pointer">Schließen</button></div></div>
+
+<script>
+const COLORS={brown:'#795548',lblue:'#81d4fa',pink:'#f48fb1',orange:'#ff9800',red:'#f44336',yellow:'#ffeb3b',green:'#4caf50',dblue:'#1565c0'};
+const PC=['#e53935','#1e88e5','#43a047','#fdd835'];
+let ws,myIdx=-1,SPACES=[],GM={},S=null,toP=new Set(),trP=new Set(),composing=false,GOR=[];
+function sortProps(ids){return ids.sort((a,b)=>{const sa=SPACES[a],sb=SPACES[b];const ga=gsk(sa),gb=gsk(sb);return ga!==gb?ga-gb:a-b;});}
+function gsk(sp){if(sp.type==='railroad')return 8;if(sp.type==='utility')return 9;const go=['brown','lblue','pink','orange','red','yellow','green','dblue'];return sp.group?go.indexOf(sp.group):99;}
+let myToken=localStorage.getItem('mtoken')||'';
+let myStoredIdx=parseInt(localStorage.getItem('myIdx'))||-1;
+let reconnecting=false;
+let pingInterval=null;
+
+function connect(){
+  const p=location.protocol==='https:'?'wss:':'ws:';
+  ws=new WebSocket(`${p}//${location.host}`);
+  ws.onopen=()=>{
+    const st=document.getElementById('lobby-status');
+    if(st)st.textContent='✅ Verbunden!';
+    document.getElementById('reconn-bar').classList.remove('show');
+    // Always try rejoin if we have a token (covers page reload + disconnects)
+    if(myToken){
+      send({type:'rejoin',token:myToken});
+    }
+    // Start keepalive pings every 20s
+    if(pingInterval)clearInterval(pingInterval);
+    pingInterval=setInterval(()=>{send({type:'ping'});},20000);
+  };
+  ws.onmessage=e=>{
+    const m=JSON.parse(e.data);
+    if(m.type==='pong')return; // keepalive response
+    if(m.type==='welcome'){SPACES=m.spaces;GM=m.groupMembers;}
+    else if(m.type==='joined'){
+      myIdx=m.playerIdx;
+      myToken=m.token||'';
+      localStorage.setItem('mtoken',myToken);
+      localStorage.setItem('myIdx',myIdx);
+      document.getElementById('join-btn').disabled=true;
+      document.getElementById('name-input').disabled=true;
+    }
+    else if(m.type==='rejoined'){
+      myIdx=m.playerIdx;
+      localStorage.setItem('myIdx',myIdx);
+      document.getElementById('join-btn').disabled=true;
+      document.getElementById('name-input').disabled=true;
+    }
+    else if(m.type==='state'){
+      S=m.state;
+      // Reset client if we got kicked back to lobby (abort)
+      if(S.phase==='lobby'&&S.players.length===0){
+        myIdx=-1;myToken='';localStorage.removeItem('mtoken');localStorage.removeItem('myIdx');
+        document.getElementById('join-btn').disabled=false;
+        document.getElementById('name-input').disabled=false;
+      }
+      if(S.phase==='lobby')renderLobby();
+      else if(S.phase==='rolling_order')renderRollingOrder();
+      else{showGame();renderAll();}
+    }
+    else if(m.type==='error'){
+      const el=document.getElementById('lobby-error');
+      if(el){el.textContent=m.text;setTimeout(()=>el.textContent='',3000);}
+      // If rejoin failed (invalid token), clear and let user join fresh
+      if(m.text.includes('Ungültig')){
+        myToken='';myIdx=-1;localStorage.removeItem('mtoken');localStorage.removeItem('myIdx');
+        document.getElementById('join-btn').disabled=false;
+        document.getElementById('name-input').disabled=false;
+      }
+    }
+  };
+  ws.onclose=()=>{
+    if(pingInterval){clearInterval(pingInterval);pingInterval=null;}
+    const st=document.getElementById('lobby-status');
+    if(st)st.innerHTML='🔄 Verbindung verloren – verbinde neu...';
+    // Show reconnecting indicator in game too
+    document.getElementById('reconn-bar').classList.add('show');
+    const yi=document.getElementById('your-indicator');
+    if(yi)yi.textContent='🔄 Verbinde neu...';
+    reconnecting=true;
+    setTimeout(connect,2000);
+  };
+  ws.onerror=()=>{};
+}
+connect();
+function send(m){if(ws&&ws.readyState===1)ws.send(JSON.stringify(m));}
+function doAction(a){send({type:'action',action:a});}
+function joinGame(){send({type:'join',name:document.getElementById('name-input').value.trim()||'Spieler'});}
+function startGame(){send({type:'start'});}
+document.getElementById('name-input').addEventListener('keydown',e=>{if(e.key==='Enter')joinGame();});
+
+function renderLobby(){
+  if(!S)return;
+  document.getElementById('lobby').style.display='flex';
+  document.getElementById('game').style.display='none';
+  const l=document.getElementById('lobby-list');
+  l.innerHTML=S.players.length?S.players.map((p,i)=>`<div class="lobby-p"><span class="ldot" style="background:${PC[i]}"></span>${p.name}${i===myIdx?' (Du)':''}</div>`).join(''):'<span style="color:#556">Warte...</span>';
+  const b=document.getElementById('start-btn');b.disabled=S.players.length<2||myIdx<0;b.textContent=`Spiel starten (${S.players.length}/4)`;
+  b.onclick=startGame;b.style.display='';
+  // Sync house rules checkboxes
+  if(S.houseRules){
+    const hp=document.getElementById('hr-parking'),hg=document.getElementById('hr-go400'),hj=document.getElementById('hr-jail3');
+    if(hp)hp.checked=S.houseRules.freeParkingPot;
+    if(hg)hg.checked=S.houseRules.landOnGo400;
+    if(hj)hj.checked=S.houseRules.jailExtraRolls;
+  }
+}
+
+function updateRules(){
+  send({type:'set_rules',rules:{
+    freeParkingPot:document.getElementById('hr-parking').checked,
+    landOnGo400:document.getElementById('hr-go400').checked,
+    jailExtraRolls:document.getElementById('hr-jail3').checked,
+  }});
+}
+
+function renderRollingOrder(){
+  document.getElementById('lobby').style.display='flex';
+  document.getElementById('game').style.display='none';
+  const l=document.getElementById('lobby-list');
+  const myRoll=S.initRolls[myIdx];
+  const allRolled=S.players.every((_,i)=>S.initRolls[i]);
+
+  let html='<div style="margin-bottom:12px;font-size:14px;color:#f5c542">🎲 Würfeln um die Reihenfolge!</div>';
+  S.players.forEach((p,i)=>{
+    const roll=S.initRolls[i];
+    const isMe=i===myIdx;
+    html+=`<div class="lobby-p" style="font-size:15px;${isMe?'color:#81d4fa;font-weight:700':''}">
+      <span class="ldot" style="background:${PC[i]}"></span>
+      ${p.name}${isMe?' (Du)':''}:
+      ${roll ? '<span style="color:#8f8;font-weight:700"> '+roll.d1+' + '+roll.d2+' = '+roll.total+'</span>' : '<span style="color:#667">⏳ wartet...</span>'}
+    </div>`;
+  });
+
+  if(allRolled&&S.turnOrder&&S.turnOrder.length){
+    html+='<div style="margin-top:12px;padding:10px;background:#0a1e3d;border-radius:8px;font-size:13px"><b style="color:#f5c542">📊 Reihenfolge:</b><br>';
+    S.turnOrder.forEach((oldIdx,pos)=>{
+      const r=S.initRolls[oldIdx];
+      html+=`<div style="padding:2px 0">${pos+1}. ${S.players[oldIdx]?.name||'?'} (${r?.total||'?'})</div>`;
+    });
+    html+='<div style="margin-top:8px;color:#8f8">Spiel startet...</div></div>';
+  }
+
+  l.innerHTML=html;
+
+  const b=document.getElementById('start-btn');
+  if(!myRoll&&myIdx>=0){
+    b.textContent='🎲 Würfeln!';b.disabled=false;b.style.display='';
+    b.onclick=()=>doAction({type:'init_roll'});
+  }else{
+    b.textContent='⏳ Warte auf andere...';b.disabled=true;b.style.display='';
+  }
+}
+function showGame(){document.getElementById('lobby').style.display='none';document.getElementById('game').style.display='block';if(!document.getElementById('board').children.length)buildBoard();recalcScale();}
+function recalcScale(){const r=document.documentElement,vh=window.innerHeight,vw=window.innerWidth;let s=(vh*.95)/702;const n=702*s+340+300+60;if(n>vw*.98){const a=vw*.98-340-300-60;if(a>300)s=Math.min(s,a/702);}s=Math.max(.5,Math.min(s,1.8));const sf=Math.max(.7,Math.min(s*.95,1.5));r.style.setProperty('--s',s.toFixed(4));r.style.setProperty('--sf',sf.toFixed(4));}
+window.addEventListener('resize',recalcScale);
+
+function buildBoard(){
+  const b=document.getElementById('board');b.innerHTML='';const pos=[];
+  for(let i=0;i<=10;i++)pos[i]={col:11-i,row:11};
+  for(let i=11;i<=19;i++)pos[i]={col:1,row:10-(i-11)};
+  for(let i=20;i<=30;i++)pos[i]={col:1+(i-20),row:1};
+  for(let i=31;i<=39;i++)pos[i]={col:11,row:2+(i-31)};
+  SPACES.forEach((sp,idx)=>{
+    const c=document.createElement('div');c.className='cell';c.id='cell-'+idx;
+    c.style.gridColumn=pos[idx].col;c.style.gridRow=pos[idx].row;
+    if([0,10,20,30].includes(idx))c.classList.add('corner');
+    if(idx<=10)c.classList.add('bottom');else if(idx<=19)c.classList.add('left');else if(idx<=30)c.classList.add('top');else c.classList.add('right');
+    if(sp.group&&COLORS[sp.group]){const bar=document.createElement('div');bar.className='color-bar';bar.style.background=COLORS[sp.group];c.appendChild(bar);}
+    const nm=document.createElement('div');nm.className='name';
+    const labels={go:'→ LOS',jail:'🔒 Gefängnis',free:'🅿️ Frei Parken',gotojail:'🚔 Ins Gefängnis',chance:'❓ Ereignis',community:'📋 Gemeinschaft'};
+    if(labels[sp.type])nm.textContent=labels[sp.type];
+    else if(sp.type==='railroad')nm.textContent='🚂 '+sp.name;
+    else if(sp.type==='utility')nm.textContent='⚡ '+sp.name;
+    else nm.textContent=sp.name;
+    c.appendChild(nm);
+    if(sp.price){const pr=document.createElement('div');pr.className='price-tag';pr.textContent=sp.price+'€';c.appendChild(pr);}
+    if(sp.type==='tax'){const pr=document.createElement('div');pr.className='price-tag';pr.textContent=sp.amount+'€';c.appendChild(pr);}
+    const tk=document.createElement('div');tk.className='tokens';tk.id='tokens-'+idx;c.appendChild(tk);
+    b.appendChild(c);
+  });
+  const ct=document.createElement('div');ct.id='board-center';
+  ct.innerHTML='<h1>MONOPOLY</h1><div class="subtitle">ONLINE</div><div id="pot-display">🅿️ 0€</div><div id="your-indicator"></div>';
+  b.appendChild(ct);
+}
+
+function renderBoard(){
+  if(!S)return;
+  for(let i=0;i<40;i++){const tc=document.getElementById('tokens-'+i);if(tc)tc.innerHTML='';const cl=document.getElementById('cell-'+i);cl.querySelectorAll('.owner-dot,.houses-row').forEach(e=>e.remove());cl.classList.remove('mortgaged-cell','selected-cell');
+    // Reset price tag to original
+    const sp=SPACES[i],pt=cl.querySelector('.price-tag');
+    if(pt&&sp.price){
+      const prop=S.properties[i];
+      if(prop&&prop.mortgaged){cl.classList.add('mortgaged-cell');pt.textContent='🏦'+Math.floor(sp.price*0.55)+'€';}
+      else{pt.textContent=sp.price+'€';}
+    }
+    // Click handler
+    cl.onclick=()=>showPropInfo(i);
+  }
+  S.players.forEach((pl,i)=>{if(pl.bankrupt)return;const tc=document.getElementById('tokens-'+pl.pos);const t=document.createElement('div');t.className='tok';t.style.background=pl.color;t.textContent=i+1;tc.appendChild(t);});
+  for(const[sid,prop]of Object.entries(S.properties)){
+    const cl=document.getElementById('cell-'+sid);const sp=SPACES[sid];if(!cl)continue;
+    const d=document.createElement('div');d.className='owner-dot';d.style.background=S.players[prop.owner].color;if(prop.mortgaged)d.style.opacity='0.3';cl.appendChild(d);
+    if(prop.houses>0&&sp.type==='property'&&!prop.mortgaged){const hr=document.createElement('div');hr.className='houses-row';if(prop.houses===5){const h=document.createElement('div');h.className='hotel-icon';hr.appendChild(h);}else{for(let i=0;i<prop.houses;i++){const h=document.createElement('div');h.className='house-icon';hr.appendChild(h);}}cl.appendChild(hr);}
+  }
+  const pe=document.getElementById('pot-display');if(pe)pe.textContent='🅿️ Frei Parken: '+S.freeParkingPot+'€';
+  const yi=document.getElementById('your-indicator');
+  if(yi&&myIdx>=0){const my=S.currentPlayer===myIdx;yi.textContent=my?'🎯 Du bist dran!':'⏳ '+S.players[S.currentPlayer].name;yi.style.background=my?'#27ae6033':'#16213e88';yi.style.color=my?'#2ecc71':'#aaa';}
+}
+
+let selectedCell=-1;
+function showPropInfo(idx){
+  const panel=document.getElementById('prop-info');
+  const sp=SPACES[idx];
+  if(!['property','railroad','utility'].includes(sp.type)){panel.classList.remove('show');panel.innerHTML='';selectedCell=-1;document.querySelectorAll('.cell').forEach(c=>c.classList.remove('selected-cell'));return;}
+  // Highlight cell
+  document.querySelectorAll('.cell').forEach(c=>c.classList.remove('selected-cell'));
+  document.getElementById('cell-'+idx).classList.add('selected-cell');
+  selectedCell=idx;
+  const prop=S.properties[idx];
+  const col=sp.group?(COLORS[sp.group]||'#555'):(sp.type==='railroad'?'#555':'#9e9e9e');
+  let h=`<div style="height:8px;background:${col};border-radius:4px;margin-bottom:8px"></div>`;
+  h+=`<h4>${sp.name}</h4>`;
+  h+=`<div class="pi-row"><span>Kaufpreis</span><span>${sp.price}€</span></div>`;
+  if(prop){
+    h+=`<div class="pi-owner">Besitzer: <span style="color:${S.players[prop.owner].color};font-weight:700">${S.players[prop.owner].name}</span></div>`;
+    if(prop.mortgaged){h+=`<div class="pi-mort">🏦 Hypothek aktiv – keine Miete</div><div class="pi-row"><span>Auslösen kostet</span><span>${Math.floor(sp.price/2*1.1)}€</span></div>`;}
+    else{
+      if(sp.type==='property'){
+        const rents=['Grundmiete','1 Haus','2 Häuser','3 Häuser','4 Häuser','Hotel'];
+        const g=GM[sp.group];const ownsAll=g&&g.every(id=>S.properties[id]&&S.properties[id].owner===prop.owner&&!S.properties[id].mortgaged);
+        sp.rent.forEach((r,i)=>{const cur=(prop.houses===i)||(i===0&&prop.houses===0);h+=`<div class="pi-row${cur?' highlight':''}"><span>${rents[i]}${i===0&&ownsAll&&prop.houses===0?' (x2)':''}</span><span>${i===0&&ownsAll&&prop.houses===0?r*2:r}€</span></div>`;});
+        h+=`<div class="pi-row"><span>Hauspreis</span><span>${sp.houseCost}€</span></div>`;
+      }else if(sp.type==='railroad'){
+        const c=[5,15,25,35].filter(id=>S.properties[id]&&S.properties[id].owner===prop.owner&&!S.properties[id].mortgaged).length;
+        [1,2,3,4].forEach(n=>{h+=`<div class="pi-row${c===n?' highlight':''}"><span>${n} Bahnhof${n>1?'e':''}</span><span>${[25,50,100,200][n-1]}€</span></div>`;});
+      }else{h+=`<div class="pi-row"><span>1 Werk</span><span>4x Würfel</span></div><div class="pi-row"><span>2 Werke</span><span>10x Würfel</span></div>`;}
+    }
+  }else{
+    h+=`<div class="pi-owner" style="color:#8f8">Zu verkaufen!</div>`;
+    if(sp.rent){const rents=['Grundmiete','1 Haus','2 Häuser','3 Häuser','4 Häuser','Hotel'];sp.rent.forEach((r,i)=>{h+=`<div class="pi-row"><span>${rents[i]}</span><span>${r}€</span></div>`;});if(sp.houseCost)h+=`<div class="pi-row"><span>Hauspreis</span><span>${sp.houseCost}€</span></div>`;}
+  }
+  h+=`<div class="pi-row"><span>Hypothek</span><span>${Math.floor(sp.price/2)}€</span></div>`;
+  panel.innerHTML=h;panel.classList.add('show');
+}
+
+function renderPlayers(){
+  if(!S)return;const a=document.getElementById('players-area');a.innerHTML='';
+  S.players.forEach((pl,i)=>{
+    const cd=document.createElement('div');cd.className='player-card'+(i===S.currentPlayer?' active':'')+(pl.bankrupt?' bankrupt':'')+(i===myIdx?' you':'')+(!pl.connected?' dc':'');
+    const hd=document.createElement('div');hd.className='pheader';
+    const dt=document.createElement('div');dt.className='dot';dt.style.background=pl.color;
+    const inf=document.createElement('div');inf.className='pinfo';
+    const nm=document.createElement('div');nm.className='pname';nm.textContent=pl.name+(pl.inJail?' 🔒':'')+(pl.bankrupt?' ❌':'');
+    const mn=document.createElement('div');mn.className='pmoney';mn.textContent=pl.money+'€';
+    inf.appendChild(nm);inf.appendChild(mn);
+    if(i===myIdx){const tg=document.createElement('div');tg.className='ptag';tg.textContent='(Du)';inf.appendChild(tg);}
+    hd.appendChild(dt);hd.appendChild(inf);cd.appendChild(hd);
+    const oi=sortProps(Object.entries(S.properties).filter(([,p])=>p.owner===i).map(([s])=>parseInt(s)));
+    if(oi.length>0){const g=document.createElement('div');g.className='prop-grid';oi.forEach(sid=>{const sp=SPACES[sid];const pr=S.properties[sid];const ch=document.createElement('div');ch.className='prop-chip'+(pr.mortgaged?' mort':'');const br=document.createElement('div');br.className='pbar';br.style.background=sp.group?(COLORS[sp.group]||'#555'):(sp.type==='railroad'?'#555':'#9e9e9e');if(sp.type==='property'&&pr.houses>0){if(pr.houses===5){const h=document.createElement('div');h.className='mht';br.appendChild(h);}else{for(let hi=0;hi<pr.houses;hi++){const h=document.createElement('div');h.className='mh';br.appendChild(h);}}}ch.appendChild(br);const n=document.createElement('div');n.className='pcn';n.textContent=sp.name+(pr.mortgaged?' 🏦':'');ch.appendChild(n);g.appendChild(ch);});cd.appendChild(g);}
+    else{const np=document.createElement('div');np.className='no-props';np.textContent='Keine Grundstücke';cd.appendChild(np);}
+    a.appendChild(cd);
+  });
+}
+
+function renderDice(){if(!S)return;[['die1',S.lastDice[0]],['die2',S.lastDice[1]]].forEach(([id,v])=>{const ps=[[],[5],[1,9],[1,5,9],[1,3,7,9],[1,3,5,7,9],[1,3,4,6,7,9]];const e=document.getElementById(id);e.innerHTML='';for(let i=1;i<=9;i++){const p=document.createElement('div');p.className='pip'+(ps[v].includes(i)?' show':'');e.appendChild(p);}});}
+
+function renderActions(){
+  if(!S||myIdx<0)return;const a=document.getElementById('actions');a.innerHTML='';
+  const pl=S.players[myIdx];if(!pl||pl.bankrupt)return;
+  if(S.phase==='gameover'){aBtn('🔄 Neues Spiel','end',()=>doAction({type:'abort'}));return;}
+  if(S.auction||S.pendingCard||S.debtPlayer>=0){document.getElementById('roll-btn').disabled=true;return;} // Actions blocked during these phases
+  const my=S.currentPlayer===myIdx;
+  document.getElementById('roll-btn').disabled=!(my&&S.turnPhase==='roll'&&!pl.inJail);
+  if(my&&S.turnPhase==='roll'&&pl.inJail){
+    if(pl.money>=50)aBtn('50€ zahlen','jail',()=>doAction({type:'payjail'}));
+    if(pl.jailFreeCards>0)aBtn('Freikarte','jail',()=>doAction({type:'usejailcard'}));
+    const maxR=S.houseRules?.jailExtraRolls?3:1;
+    const used=pl.jailRollsThisTurn||0;
+    aBtn(`🎲 Würfeln ${maxR>1?`(${used+1}/${maxR})`:('(Pasch?)')}`,'',()=>doAction({type:'roll'}));
+  }
+  if(my&&S.turnPhase==='postroll'&&!S.auction){
+    const sp=SPACES[pl.pos];
+    if(['property','railroad','utility'].includes(sp.type)&&!S.properties[pl.pos]){
+      if(pl.money>=sp.price)aBtn(sp.name+' kaufen ('+sp.price+'€)','buy',()=>doAction({type:'buy'}));
+      aBtn('🔨 Versteigern','trade',()=>doAction({type:'auction_start'}));
+    }
+    if(canBuild())aBtn('🏠 Bauen','build',()=>openBuild());
+    if(canSellHouses())aBtn('🏚️ Haus verkaufen','sell',()=>openSellHouses());
+    if(hasMortgageActions())aBtn('🏦 Hypotheken','trade',()=>openMort());
+    aBtn('🤝 Handeln','trade',()=>openCompose());
+    aBtn('Zug beenden','end',()=>doAction({type:'endturn'}));
+  }
+}
+function aBtn(t,c,f){const b=document.createElement('button');b.textContent=t;if(c)b.className=c;b.onclick=f;document.getElementById('actions').appendChild(b);}
+
+function renderLog(){if(!S)return;const e=document.getElementById('log');e.innerHTML=S.log.slice().reverse().map(l=>{const t=typeof l==='object'?l.text:l;const c=typeof l==='object'?l.color:'#888';return `<div class="log-e" style="background:${c}18;border-left:2px solid ${c}">${t}</div>`;}).join('');}
+function renderAll(){renderBoard();renderPlayers();renderDice();renderActions();renderLog();renderAuction();renderCardPopup();renderDebt();if(!composing&&!S?.auction&&S?.debtPlayer<0&&!S?.pendingCard)renderTrade();}
+
+// Build
+function canBuild(){
+  if(!S||myIdx<0)return false;
+  return SPACES.some((sp,idx)=>{if(sp.type!=='property'||!sp.group)return false;const pr=S.properties[idx];if(!pr||pr.owner!==myIdx||pr.mortgaged)return false;const g=GM[sp.group];if(!g||!g.every(id=>S.properties[id]&&S.properties[id].owner===myIdx&&!S.properties[id].mortgaged))return false;if(pr.houses>=5||S.players[myIdx].money<sp.houseCost)return false;const mn=Math.min(...g.map(id=>S.properties[id]?.houses||0));return pr.houses<=mn;});
+}
+
+function hasMortgageActions(){
+  if(!S||myIdx<0)return false;
+  return Object.entries(S.properties).some(([sid,p])=>{
+    if(p.owner!==myIdx)return false;
+    if(p.mortgaged)return true; // can unmortgage
+    if(p.houses>0)return false;
+    const sp=SPACES[parseInt(sid)];
+    if(sp.group&&GM[sp.group]&&GM[sp.group].some(gid=>{const gp=S.properties[gid];return gp&&gp.owner===myIdx&&gp.houses>0;}))return false;
+    return true; // can mortgage
+  });
+}
+
+function openMort(){
+  const l=document.getElementById('mort-list');l.innerHTML='';
+  const myProps=sortProps(Object.entries(S.properties).filter(([,p])=>p.owner===myIdx).map(([s])=>parseInt(s)));
+  myProps.forEach(sid=>{
+    const sp=SPACES[sid],pr=S.properties[sid];
+    const it=document.createElement('div');it.className='mort-item';
+    const mortVal=Math.floor(sp.price/2);
+    const unmortCost=Math.floor(mortVal*1.1);
+    if(pr.mortgaged){
+      it.innerHTML=`<span style="color:${pC(sid)}">■</span> ${sp.name} <span style="color:#e74c3c">🏦 Hypothek</span>`;
+      const bt=document.createElement('button');bt.className='m-off';bt.textContent=`Auslösen (${unmortCost}€)`;
+      bt.disabled=S.players[myIdx].money<unmortCost;
+      bt.onclick=()=>{doAction({type:'unmortgage',spaceId:sid});setTimeout(()=>openMort(),300);};
+      it.appendChild(bt);
+    }else{
+      const canMort=pr.houses===0&&!(sp.group&&GM[sp.group]&&GM[sp.group].some(gid=>{const gp=S.properties[gid];return gp&&gp.owner===myIdx&&gp.houses>0;}));
+      it.innerHTML=`<span style="color:${pC(sid)}">■</span> ${sp.name}`;
+      const bt=document.createElement('button');bt.className='m-on';bt.textContent=`Hypothek (+${mortVal}€)`;
+      bt.disabled=!canMort;
+      bt.onclick=()=>{doAction({type:'mortgage',spaceId:sid});setTimeout(()=>openMort(),300);};
+      it.appendChild(bt);
+    }
+    l.appendChild(it);
+  });
+  document.getElementById('mort-modal').classList.add('show');
+}
+function closeMort(){document.getElementById('mort-modal').classList.remove('show');}
+
+function toggleSettings(){document.getElementById('settings-menu').classList.toggle('show');}
+document.addEventListener('click',e=>{if(!e.target.closest('.settings-wrap'))document.getElementById('settings-menu')?.classList.remove('show');});
+
+// Card popup on board center
+function renderCardPopup(){
+  const center=document.getElementById('board-center');
+  if(!center)return;
+  const existing=center.querySelector('.card-popup-overlay');if(existing)existing.remove();
+  if(!S||!S.pendingCard)return;
+  const c=S.pendingCard, isMe=c.playerIdx===myIdx;
+  const isCommunity=c.type==='community';
+  const act=c.card.action;
+  const isPositive=['gain','collectall','jailcard'].includes(act);
+  const isNegative=['pay','jail','repair','payall','back3'].includes(act);
+  let cls='card-popup-box';
+  if(isPositive)cls+=' positive';
+  else if(isNegative)cls+=' negative';
+  else if(isCommunity)cls+=' community';
+  const ov=document.createElement('div');ov.className='card-popup-overlay';
+  const box=document.createElement('div');box.className=cls;
+  const icon=isPositive?'💰':isNegative?'💸':isCommunity?'📋':'❓';
+  const title=isCommunity?'Gemeinschaft':'Ereignis';
+  box.innerHTML=`<h4>${icon} ${title}</h4><p>${c.card.text}</p>`;
+  if(isMe){
+    const btn=document.createElement('button');btn.textContent='OK';
+    btn.onclick=(e)=>{e.stopPropagation();doAction({type:'confirm_card'});};
+    box.appendChild(btn);
+  }else{
+    const wait=document.createElement('div');wait.style.cssText='font-size:11px;color:#888;margin-top:8px';
+    wait.textContent='⏳ '+S.players[c.playerIdx].name+' muss bestätigen...';
+    box.appendChild(wait);
+  }
+  ov.appendChild(box);center.appendChild(ov);
+}
+
+// Debt resolution panel
+function renderDebt(){
+  const a=document.getElementById('trade-area');
+  if(!S||S.debtPlayer<0)return;
+  const isMe=S.debtPlayer===myIdx;
+  const dp=S.players[S.debtPlayer];
+  if(!isMe){
+    a.innerHTML=`<div class="debt-panel"><h3>⚠️ Schulden</h3><div class="debt-amount">${dp.money}€</div><div class="debt-msg">${dp.name} muss Schulden begleichen...</div></div>`;
+    return;
+  }
+  // I am in debt - show resolution UI
+  const myProps=sortProps(Object.entries(S.properties).filter(([,p])=>p.owner===myIdx).map(([s])=>parseInt(s)));
+  let h=`<div class="debt-panel"><h3>⚠️ Du hast Schulden!</h3><div class="debt-amount">${dp.money}€</div><div class="debt-msg">Verkaufe Häuser oder belaste Grundstücke mit Hypotheken um auf 0€+ zu kommen.</div>`;
+  // List assets
+  myProps.forEach(sid=>{
+    const sp=SPACES[sid],pr=S.properties[sid];
+    const col=pC(sid);
+    h+=`<div class="debt-item"><span><span style="color:${col}">■</span> ${sp.name}`;
+    if(pr.houses>0)h+=` (${pr.houses===5?'Hotel':pr.houses+'H'})`;
+    if(pr.mortgaged)h+=` 🏦`;
+    h+=`</span><span>`;
+    // Sell house button
+    if(pr.houses>0){
+      const g=GM[sp.group];const maxH=g?Math.max(...g.map(id=>S.properties[id]?.houses||0)):0;
+      const canSell=pr.houses>=maxH;
+      const refund=Math.floor(sp.houseCost/2);
+      h+=`<button class="d-sell" ${canSell?'':'disabled'} onclick="doAction({type:'debt_sell_house',spaceId:${sid}})">Haus -${refund>0?'+'+refund:refund}€</button> `;
+    }
+    // Mortgage button
+    if(!pr.mortgaged&&pr.houses===0){
+      let canMort=true;
+      if(sp.group&&GM[sp.group]&&GM[sp.group].some(gid=>{const gp=S.properties[gid];return gp&&gp.owner===myIdx&&gp.houses>0;}))canMort=false;
+      const v=Math.floor(sp.price/2);
+      h+=`<button class="d-mort" ${canMort?'':'disabled'} onclick="doAction({type:'debt_mortgage',spaceId:${sid}})">Hyp +${v}€</button>`;
+    }
+    h+=`</span></div>`;
+  });
+  h+=`<div class="debt-btns">`;
+  h+=`<button class="d-ok" ${dp.money>=0?'':'disabled'} onclick="doAction({type:'resolve_debt'})">✅ Schulden beglichen</button>`;
+  if(!canResolve()){
+    h+=`<button class="d-rip" onclick="if(confirm('Wirklich aufgeben?'))doAction({type:'declare_bankrupt'})">💀 Bankrott</button>`;
+  }
+  h+=`</div></div>`;
+  a.innerHTML=h;
+}
+function canResolve(){
+  if(!S||myIdx<0)return true;
+  return S.players[myIdx].money>=0||Object.entries(S.properties).some(([,p])=>p.owner===myIdx&&(p.houses>0||!p.mortgaged));
+}
+
+// Sell houses
+function canSellHouses(){
+  if(!S||myIdx<0)return false;
+  return Object.entries(S.properties).some(([,p])=>p.owner===myIdx&&p.houses>0);
+}
+function openSellHouses(){
+  const l=document.getElementById('build-list');l.innerHTML='';
+  document.querySelector('#build-content h3').textContent='🏚️ Häuser verkaufen';
+  const myProps=sortProps(Object.entries(S.properties).filter(([,p])=>p.owner===myIdx&&p.houses>0).map(([s])=>parseInt(s)));
+  myProps.forEach(sid=>{
+    const sp=SPACES[sid],pr=S.properties[sid];
+    const refund=Math.floor(sp.houseCost/2);
+    const g=GM[sp.group];
+    const maxH=g?Math.max(...g.map(id=>S.properties[id]?.houses||0)):0;
+    const canSell=pr.houses>=maxH; // even-sell rule
+    const it=document.createElement('div');it.className='build-item';
+    it.innerHTML=`<span style="color:${COLORS[sp.group]||'#555'}">■</span> ${sp.name} (${pr.houses===5?'Hotel':pr.houses+'H'})`;
+    const bt=document.createElement('button');bt.style.background='#e67e22';bt.textContent=`Verkaufen (+${refund}€)`;
+    bt.disabled=!canSell;
+    bt.onclick=()=>{doAction({type:'sell_house',spaceId:sid});setTimeout(()=>{if(canSellHouses())openSellHouses();else closeBuild();},300);};
+    it.appendChild(bt);l.appendChild(it);
+  });
+  document.getElementById('build-modal').classList.add('show');
+}
+
+// Auction
+let auctionInterval=null;
+function renderAuction(){
+  const a=document.getElementById('trade-area');
+  if(!S||!S.auction){
+    if(auctionInterval){clearInterval(auctionInterval);auctionInterval=null;}
+    return;
+  }
+  const au=S.auction, sp=SPACES[au.spaceId], pl=S.players[myIdx];
+  const col=sp.group?(COLORS[sp.group]||'#555'):(sp.type==='railroad'?'#555':'#9e9e9e');
+  const bidderName=au.highBidder>=0?S.players[au.highBidder].name:'Noch niemand';
+  const bidderColor=au.highBidder>=0?S.players[au.highBidder].color:'#888';
+  const canBid10=myIdx>=0&&pl&&!pl.bankrupt&&pl.money>=(au.highBid+10);
+  const canBid50=myIdx>=0&&pl&&!pl.bankrupt&&pl.money>=(au.highBid+50);
+  const canBid100=myIdx>=0&&pl&&!pl.bankrupt&&pl.money>=(au.highBid+100);
+
+  const hasMortgageable=myIdx>=0&&pl&&!pl.bankrupt&&Object.entries(S.properties).some(([sid,p])=>{
+    if(p.owner!==myIdx||p.mortgaged||p.houses>0)return false;
+    const s=SPACES[parseInt(sid)];
+    if(s.group&&GM[s.group]&&GM[s.group].some(gid=>{const gp=S.properties[gid];return gp&&gp.owner===myIdx&&gp.houses>0;}))return false;
+    return true;
+  });
+  const hasUnmortgageable=myIdx>=0&&pl&&!pl.bankrupt&&Object.entries(S.properties).some(([,p])=>p.owner===myIdx&&p.mortgaged);
+
+  let h=`<div class="auction-panel">
+    <h3>🔨 AUKTION</h3>
+    <div class="auction-property"><span class="abar" style="background:${col}"></span>${sp.name}</div>
+    <div style="font-size:calc(10px*var(--sf));color:#888">Grundpreis: ${sp.price}€</div>
+    <div class="auction-bid-display">${au.highBid>0?au.highBid+'€':'Kein Gebot'}</div>
+    <div class="auction-bidder">Höchstbietender: <span style="color:${bidderColor};font-weight:700">${bidderName}</span></div>
+    <div class="auction-timer" id="auction-countdown">⏱ ...</div>
+    <div class="auction-btns">
+      <button class="bid10" onclick="doAction({type:'bid',amount:10})" ${canBid10?'':'disabled'}>+10€</button>
+      <button class="bid50" onclick="doAction({type:'bid',amount:50})" ${canBid50?'':'disabled'}>+50€</button>
+      <button class="bid100" onclick="doAction({type:'bid',amount:100})" ${canBid100?'':'disabled'}>+100€</button>
+    </div>
+    ${(hasMortgageable||hasUnmortgageable)?`<div class="auction-btns" style="margin-top:6px"><button style="background:#8e44ad" onclick="openMort()">🏦 Hypothek aufnehmen</button></div>`:''}
+    ${myIdx>=0&&pl?`<div style="margin-top:8px;font-size:calc(10px*var(--sf));color:#667">Dein Geld: ${pl.money}€ | Nächstes Gebot: ${au.highBid+10}€+</div>`:''}
+  </div>`;
+  a.innerHTML=h;
+
+  // Start countdown updater
+  if(auctionInterval)clearInterval(auctionInterval);
+  auctionInterval=setInterval(()=>{
+    const cd=document.getElementById('auction-countdown');
+    if(!cd||!S||!S.auction){clearInterval(auctionInterval);auctionInterval=null;return;}
+    const left=Math.max(0,Math.ceil((S.auction.endTime-Date.now())/1000));
+    const pct=Math.max(0,Math.min(100,left/10*100));
+    cd.innerHTML=`⏱ ${left}s <div class="timer-bar"><div class="timer-fill" style="width:${pct}%"></div></div>`;
+    if(left<=0){clearInterval(auctionInterval);auctionInterval=null;}
+  },500);
+}
+function openBuild(){
+  document.querySelector('#build-content h3').textContent='🏠 Häuser / Hotels';
+  const l=document.getElementById('build-list');l.innerHTML='';
+  SPACES.forEach((sp,idx)=>{if(sp.type!=='property')return;const pr=S.properties[idx];if(!pr||pr.owner!==myIdx||pr.mortgaged)return;const g=GM[sp.group];if(!g||!g.every(id=>S.properties[id]&&S.properties[id].owner===myIdx&&!S.properties[id].mortgaged))return;const ok=pr.houses<5&&S.players[myIdx].money>=sp.houseCost;const mn=Math.min(...g.map(id=>S.properties[id]?.houses||0));const ev=pr.houses<=mn;
+  const it=document.createElement('div');it.className='build-item';it.innerHTML=`<span style="color:${COLORS[sp.group]}">■</span> ${sp.name} (${pr.houses}H) ${sp.houseCost}€`;
+  const bt=document.createElement('button');bt.textContent=pr.houses===4?'Hotel':'Haus';bt.disabled=!ok||!ev;bt.onclick=()=>{doAction({type:'build',spaceId:idx});setTimeout(()=>{if(canBuild())openBuild();else closeBuild();},300);};it.appendChild(bt);l.appendChild(it);});
+  document.getElementById('build-modal').classList.add('show');
+}
+function closeBuild(){document.getElementById('build-modal').classList.remove('show');}
+
+// Trade
+function pN(sid){const sp=SPACES[sid];let n=sp.name;if(sp.type==='railroad')n='🚂 '+n;if(sp.type==='utility')n='⚡ '+n;return n;}
+function pC(sid){const sp=SPACES[sid];return sp.group?(COLORS[sp.group]||'#555'):(sp.type==='railroad'?'#555':'#9e9e9e');}
+function gTP(pid){return sortProps(Object.entries(S.properties).filter(([sid,pr])=>{if(pr.owner!==pid)return false;const sp=SPACES[parseInt(sid)];if(sp.group&&GM[sp.group]&&GM[sp.group].some(gid=>{const gp=S.properties[gid];return gp&&gp.owner===pid&&gp.houses>0;}))return false;return true;}).map(([s])=>parseInt(s)));}
+
+function renderTrade(){
+  const a=document.getElementById('trade-area');if(!S||myIdx<0){a.innerHTML='';return;}
+  const o=S.pendingOffer;
+  if(o&&o.to===myIdx){renderReview(a,o);return;}
+  if(o&&o.from===myIdx){a.innerHTML=`<div class="ts">⏳ Warte auf ${S.players[o.to].name}...</div><div class="tbt"><button class="tc4" onclick="doAction({type:'trade_cancel'})">❌ Abbrechen</button></div>`;return;}
+  a.innerHTML='<div style="font-size:calc(11px*var(--sf));color:#556">Klicke „Handeln" bei Aktionen.</div>';
+}
+
+function renderReview(a,o){
+  const sn=S.players[o.from].name,rn=S.players[o.to].name;
+  let h=`<div class="ts in">📩 Angebot von <b>${sn}</b>${o.round>1?' (#'+o.round+')':''}:</div><div class="oc2"><h5>${sn} gibt:</h5><div class="oi">`;
+  if(o.offerMoney>0)h+=`<span class="om">${o.offerMoney}€</span>`;
+  o.offerProps.forEach(s=>{h+=`<span class="ocp"><span class="od" style="background:${pC(s)}"></span>${pN(s)}</span>`;});
+  if(!o.offerMoney&&!o.offerProps.length)h+='<span style="color:#556;font-size:10px">Nichts</span>';
+  h+=`</div><div class="odv">⇅ im Tausch gegen ⇅</div><h5>${rn} gibt:</h5><div class="oi">`;
+  if(o.requestMoney>0)h+=`<span class="om">${o.requestMoney}€</span>`;
+  o.requestProps.forEach(s=>{h+=`<span class="ocp"><span class="od" style="background:${pC(s)}"></span>${pN(s)}</span>`;});
+  if(!o.requestMoney&&!o.requestProps.length)h+='<span style="color:#556;font-size:10px">Nichts</span>';
+  h+=`</div></div><div class="tbt"><button class="tc5" onclick="doAction({type:'trade_accept'})">✅ Annehmen</button><button class="tc6" onclick="openCounter()">✏️ Gegen</button><button class="tc4" onclick="doAction({type:'trade_reject'})">❌ Nein</button></div>`;
+  a.innerHTML=h;
+}
+
+function openCompose(){
+  composing=true;toP=new Set();trP=new Set();
+  const a=document.getElementById('trade-area');
+  const pts=S.players.map((p,i)=>({p,i})).filter(x=>x.i!==myIdx&&!x.p.bankrupt);
+  if(!pts.length)return;
+  a.innerHTML=`<div class="ts">📝 Erstelle Angebot...</div><div class="tps"><span>An:</span><select id="tp" onchange="rfTF()">${pts.map(x=>`<option value="${x.i}">${x.p.name} (${x.p.money}€)</option>`).join('')}</select></div>${tFF()}<div class="tsu" id="tsum"></div><div class="tbt"><button class="tc3" id="tsnd" onclick="sendOffer()" disabled>📨 Senden</button><button class="tc4" onclick="cancelC()">❌ Abbrechen</button></div>`;
+  rfTF();
+}
+
+function openCounter(){
+  composing=true;const o=S.pendingOffer;if(!o)return;
+  toP=new Set(o.requestProps);trP=new Set(o.offerProps);
+  const pt=S.players[o.from];
+  const a=document.getElementById('trade-area');
+  a.innerHTML=`<div class="ts ct">✏️ Gegenangebot...</div><div class="tps"><span>An:</span><select id="tp" disabled><option value="${o.from}">${pt.name} (${pt.money}€)</option></select></div>${tFF()}<div class="tsu" id="tsum"></div><div class="tbt"><button class="tc3" id="tsnd" onclick="sendCounter()" disabled>📨 Gegenangebot</button><button class="tc4" onclick="cancelC()">❌ Abbrechen</button></div>`;
+  document.getElementById('tmo').value=o.requestMoney;document.getElementById('tmr').value=o.offerMoney;
+  rfTF();
+}
+
+function tFF(){return `<div class="tc"><div class="tcl"><h4 id="toh">Du bietest</h4><div class="tmr"><span>Geld:</span><input type="number" id="tmo" min="0" value="0" oninput="uTU()"><span>€</span></div><div id="tpo"></div></div><div class="tar">⬇⬆</div><div class="tcl"><h4 id="trh">Partner gibt</h4><div class="tmr"><span>Geld:</span><input type="number" id="tmr" min="0" value="0" oninput="uTU()"><span>€</span></div><div id="tpr"></div></div></div>`;}
+
+function rfTF(){
+  const pid=parseInt(document.getElementById('tp').value);
+  document.getElementById('trh').textContent=S.players[pid].name+' gibt';
+  rCB('tpo',gTP(myIdx),toP);
+  trP=new Set([...trP].filter(s=>S.properties[s]&&S.properties[s].owner===pid));
+  rCB('tpr',gTP(pid),trP);uTU();
+}
+
+function rCB(cid,pids,sel){
+  const a=document.getElementById(cid);if(!a)return;a.innerHTML='';
+  if(!pids.length){a.innerHTML='<div style="font-size:10px;color:#556;padding:4px">Keine</div>';return;}
+  pids.forEach(sid=>{
+    const it=document.createElement('label');it.className='tpi';
+    const cb=document.createElement('input');cb.type='checkbox';cb.checked=sel.has(sid);
+    cb.onchange=()=>{if(cb.checked)sel.add(sid);else sel.delete(sid);uTU();};
+    const d=document.createElement('div');d.className='tc2';d.style.background=pC(sid);
+    const n=document.createElement('span');n.className='tn';const pr=S.properties[sid];n.textContent=pN(sid)+(pr&&pr.mortgaged?' 🏦':'');
+    it.appendChild(cb);it.appendChild(d);it.appendChild(n);a.appendChild(it);
+  });
+}
+
+function uTU(){
+  const sm=document.getElementById('tsum'),bn=document.getElementById('tsnd');if(!sm||!bn)return;
+  const mO=Math.max(0,parseInt(document.getElementById('tmo').value)||0);
+  const mR=Math.max(0,parseInt(document.getElementById('tmr').value)||0);
+  let oA=[],rA=[];
+  if(mO>0)oA.push(mO+'€');[...toP].forEach(s=>oA.push(pN(s)));
+  if(mR>0)rA.push(mR+'€');[...trP].forEach(s=>rA.push(pN(s)));
+  if(!oA.length&&!rA.length){sm.textContent='Wähle etwas.';sm.style.color='#667';bn.disabled=true;return;}
+  if(!oA.length||!rA.length){sm.textContent='Beide Seiten brauchen etwas.';sm.style.color='#c0392b';bn.disabled=true;return;}
+  if(mO>S.players[myIdx].money){sm.textContent='Nicht genug Geld!';sm.style.color='#c0392b';bn.disabled=true;return;}
+  const pid=parseInt(document.getElementById('tp').value);
+  if(mR>S.players[pid].money){sm.textContent=S.players[pid].name+' hat nicht genug!';sm.style.color='#c0392b';bn.disabled=true;return;}
+  sm.innerHTML=oA.join(', ')+' <span style="color:#e67e22">⇄</span> '+rA.join(', ');sm.style.color='#8f8';bn.disabled=false;
+}
+
+function sendOffer(){
+  const pid=parseInt(document.getElementById('tp').value);
+  const mO=Math.max(0,parseInt(document.getElementById('tmo').value)||0);
+  const mR=Math.max(0,parseInt(document.getElementById('tmr').value)||0);
+  doAction({type:'trade_offer',to:pid,offerMoney:mO,requestMoney:mR,offerProps:[...toP],requestProps:[...trP]});
+  composing=false;
+}
+
+function sendCounter(){
+  const pid=parseInt(document.getElementById('tp').value);
+  const mO=Math.max(0,parseInt(document.getElementById('tmo').value)||0);
+  const mR=Math.max(0,parseInt(document.getElementById('tmr').value)||0);
+  doAction({type:'trade_counter',to:pid,offerMoney:mO,requestMoney:mR,offerProps:[...toP],requestProps:[...trP]});
+  composing=false;
+}
+
+function cancelC(){composing=false;renderTrade();}
+</script>
+</body>
+</html>
